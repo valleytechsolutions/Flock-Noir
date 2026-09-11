@@ -1,0 +1,24 @@
+# Arduino / arduino-cli build output
+build/
+build_out/
+*.hex
+*.elf
+*.map
+
+# Archives / packaging
+*.zip
+*.tar.gz
+
+# OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+*~
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Do NOT ignore the prebuilt release image:
+!binaries/*.bin

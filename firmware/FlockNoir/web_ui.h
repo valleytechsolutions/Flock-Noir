@@ -1,0 +1,447 @@
+// =============================================================================
+//  Flock Noir  -  web_ui.h
+//  Single-page hacker/terminal UI. Tabs: Detector / Camera / Wardrive / Settings.
+//  Polls /api/status ~2x/sec. Logo served UNALTERED at /logo.png.
+// =============================================================================
+#pragma once
+#include <Arduino.h>
+
+static const char INDEX_HTML[] PROGMEM = R"HTMLPAGE(
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flock Noir</title>
+<style>
+:root{
+ --bg:#04070a; --panel:#0a1016; --panel2:#0d151c; --line:#15242e;
+ --ink:#d8e6ec; --mut:#5f7681; --green:#3dfba0; --green-d:#1f7d54;
+ --amber:#ffcb57; --red:#ff4d5e; --blue:#57b6ff;
+ --mono:'JetBrains Mono','SFMono-Regular',ui-monospace,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:radial-gradient(120% 90% at 50% -10%,#0b1620 0%,var(--bg) 55%);
+ color:var(--ink);font:14px/1.5 var(--mono);min-height:100vh;-webkit-font-smoothing:antialiased}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9;
+ background:repeating-linear-gradient(0deg,rgba(0,0,0,.16) 0 1px,transparent 1px 3px);opacity:.30}
+a{color:var(--green)}
+.wrap{max-width:900px;margin:0 auto;padding:0 16px 40px}
+
+/* ---- top bar ---- */
+header{display:flex;align-items:center;gap:16px;padding:16px 16px 12px;max-width:900px;margin:0 auto}
+.brand-plate{flex:0 0 auto;background:radial-gradient(120% 120% at 50% 30%,#fbfdff 0%,#e8eef2 60%,#c9d3da 100%);
+ border-radius:12px;padding:8px 12px;display:flex;align-items:center;justify-content:center;
+ box-shadow:0 0 0 1px rgba(61,251,160,.35),0 0 24px rgba(61,251,160,.16),inset 0 1px 0 rgba(255,255,255,.7)}
+.brand-plate img{height:52px;display:block}
+.brand-txt{display:flex;flex-direction:column;line-height:1.15}
+.brand-txt .co{font-size:20px;font-weight:800;letter-spacing:3px}
+.brand-txt .pr{font-size:20px;font-weight:800;letter-spacing:3px;color:var(--green);
+ text-shadow:0 0 14px rgba(61,251,160,.45)}
+.brand-txt .pr .cur{animation:blink 1.1s steps(1) infinite}
+.brand-txt .tag{font-size:11px;color:var(--mut);letter-spacing:1px;margin-top:3px}
+.status{margin-left:auto;text-align:right;font-size:11px;color:var(--mut);letter-spacing:.5px}
+.status .led{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--green-d);
+ box-shadow:0 0 8px var(--green);margin-right:6px;vertical-align:middle}
+.status .ip{color:var(--ink)}
+@keyframes blink{50%{opacity:0}}
+
+/* ---- tabs ---- */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);max-width:900px;margin:6px auto 0;padding:0 16px}
+.tab{appearance:none;background:none;border:0;color:var(--mut);font:600 12px var(--mono);letter-spacing:1.5px;
+ padding:12px 16px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab:hover{color:var(--ink)}
+.tab.on{color:var(--green);border-bottom-color:var(--green)}
+
+/* ---- cards / tiles ---- */
+.card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);
+ border-radius:12px;padding:16px;margin-top:16px}
+.banner{border-radius:12px;padding:20px;margin-top:16px;border:1px solid var(--line);
+ background:linear-gradient(180deg,var(--panel2),var(--panel));font-weight:700;letter-spacing:.5px;
+ display:flex;align-items:center;gap:12px}
+.banner .ico{font-size:22px}
+.banner.clear{color:var(--green)}
+.banner.clear .ico{color:var(--green-d)}
+.banner.alert{background:linear-gradient(180deg,#2a0d12,#1a070b);border-color:var(--red);color:#ffd7db;
+ animation:alarm 1s infinite}
+@keyframes alarm{0%,100%{box-shadow:0 0 0 0 rgba(255,77,94,.55)}50%{box-shadow:0 0 0 10px rgba(255,77,94,0)}}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:16px}
+.tile{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);
+ border-radius:10px;padding:13px 14px}
+.tile .k{color:var(--mut);font-size:10px;letter-spacing:1.5px;text-transform:uppercase}
+.tile .v{font-size:22px;font-weight:700;margin-top:5px}
+.tile .v small{font-size:11px;color:var(--mut);font-weight:400;letter-spacing:.5px}
+.tile.pos .v{font-size:14px}
+.bar{height:6px;border-radius:6px;background:#071019;overflow:hidden;margin-top:9px;border:1px solid var(--line)}
+.bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--green-d),var(--green),var(--amber),var(--red));
+ transition:width .3s}
+.ok{color:var(--green)}.no{color:var(--red)}.dim{color:var(--mut)}
+
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:4px}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
+th{color:var(--mut);font-weight:600;letter-spacing:.5px;text-transform:uppercase;font-size:10px}
+td.right,th.right{text-align:right}
+.row-head{display:flex;align-items:center;margin-bottom:6px}
+.row-head strong{letter-spacing:1px;font-size:12px;color:var(--mut);text-transform:uppercase}
+
+.btn{appearance:none;display:inline-block;padding:8px 14px;border:1px solid var(--line);border-radius:8px;
+ color:var(--ink);text-decoration:none;background:var(--panel2);font:600 12px var(--mono);letter-spacing:.5px;cursor:pointer}
+.btn:hover{border-color:var(--green);color:var(--green)}
+.btn.primary{background:var(--green);color:#04120b;border-color:var(--green)}
+.btn.primary:hover{filter:brightness(1.1);color:#04120b}
+.btn.ghost{background:none}
+.btn.sm{padding:5px 10px;font-size:11px}
+
+/* ---- settings ---- */
+.field{margin:14px 0}
+.field label{display:block;color:var(--mut);font-size:11px;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px}
+input[type=text],textarea{width:100%;background:#060c11;border:1px solid var(--line);border-radius:8px;
+ color:var(--ink);font:13px var(--mono);padding:9px 10px}
+input[type=text]:focus,textarea:focus{outline:none;border-color:var(--green)}
+textarea{resize:vertical;min-height:52px}
+.switch{position:relative;display:inline-block;width:48px;height:26px}
+.switch input{display:none}
+.slider{position:absolute;inset:0;background:#0e1a22;border:1px solid var(--line);border-radius:26px;transition:.2s}
+.slider:before{content:"";position:absolute;height:18px;width:18px;left:3px;top:3px;background:var(--mut);border-radius:50%;transition:.2s}
+.switch input:checked+.slider{background:rgba(61,251,160,.18);border-color:var(--green)}
+.switch input:checked+.slider:before{transform:translateX(22px);background:var(--green)}
+.tone{border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:12px;background:#070d12}
+.tone.alert-on{border-color:var(--green);box-shadow:0 0 0 1px rgba(61,251,160,.25)}
+.tone .thead{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.tone .thead .idx{color:var(--mut);font-size:11px}
+.tone .thead .grow{flex:1}
+.radio{display:inline-flex;align-items:center;gap:6px;color:var(--mut);font-size:11px;cursor:pointer}
+.radio input{accent-color:var(--green)}
+.presets{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.chip{border:1px dashed var(--line);border-radius:20px;padding:5px 12px;font-size:11px;color:var(--mut);cursor:pointer;background:none}
+.chip:hover{border-color:var(--green);color:var(--green)}
+.hint{color:var(--mut);font-size:11.5px;line-height:1.6;margin-top:10px}
+.hint code{color:var(--amber)}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(30px);opacity:0;
+ background:var(--green);color:#04120b;font-weight:700;padding:10px 18px;border-radius:8px;transition:.25s;z-index:20}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+footer{max-width:900px;margin:26px auto 0;padding:16px;border-top:1px solid var(--line);
+ display:flex;align-items:center;flex-wrap:wrap;gap:8px;color:var(--mut);font-size:11.5px}
+footer .sig{color:var(--ink);font-style:italic;letter-spacing:.5px}
+footer .sig b{color:var(--green);font-style:normal}
+footer .spacer{flex:1}
+/* ---- live camera view ---- */
+.cam-wrap{position:relative;margin-top:14px;max-width:560px;background:#000;border:1px solid var(--line);
+ border-radius:10px;overflow:hidden;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center}
+.cam-wrap #cam{width:100%;height:100%;object-fit:contain;image-rendering:pixelated;display:block}
+.cam-wrap #cam:not([src]){opacity:0}
+.cam-hud{position:absolute;top:0;left:0;right:0;display:flex;gap:8px;padding:8px 10px;font-size:11px;
+ letter-spacing:1.5px;color:var(--green);pointer-events:none;
+ background:linear-gradient(180deg,rgba(0,0,0,.55),transparent)}
+.cam-hud .grow{flex:1}
+.cam-mark{position:absolute;right:8px;bottom:8px;padding:3px 5px;border-radius:6px;opacity:.9;
+ background:radial-gradient(120% 120% at 50% 40%,rgba(246,249,251,.9),rgba(219,227,233,.72));
+ box-shadow:0 0 0 1px rgba(61,251,160,.35),0 1px 5px rgba(0,0,0,.5)}
+.cam-mark img{height:18px;display:block}
+.rec-bar{display:flex;align-items:center;gap:12px;margin-top:14px}
+#recBtn.on{background:var(--red);border-color:var(--red);color:#fff;animation:alarm 1.2s infinite}
+.recfile{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);color:var(--ink)}
+.recfile a{margin-left:auto}
+[hidden]{display:none!important}
+</style></head><body>
+
+<header>
+  <div class="brand-plate"><img src="/logo.png" alt="Flock Noir"
+       onerror="this.parentNode.innerHTML='<span style=&quot;color:#04120b;font-weight:800;letter-spacing:2px&quot;>VTS</span>'"></div>
+  <div class="brand-txt">
+    <span class="co">FLOCK</span>
+    <span class="pr">NOIR<span class="cur">_</span></span>
+    <span class="tag">by Valleytech | @valleytechsolutions</span>
+  </div>
+  <div class="status">
+    <div><span class="led" id="led"></span><span id="clock">--:--:--</span></div>
+    <div class="ip">http://192.168.4.1</div>
+  </div>
+</header>
+
+<div class="tabs">
+  <button class="tab on" data-tab="detector">DETECTOR</button>
+  <button class="tab" data-tab="camera">CAMERA</button>
+  <button class="tab" data-tab="wardrive">WARDRIVE</button>
+  <button class="tab" data-tab="settings">SETTINGS</button>
+</div>
+
+<div class="wrap">
+  <!-- ============ DETECTOR ============ -->
+  <section id="detector">
+    <div id="banner" class="banner clear">
+      <span id="bannerTxt">SCANNING FOR IR CAMERA FLASH...</span></div>
+
+    <div class="grid">
+      <div class="tile"><div class="k">Signal</div><div class="v" id="freq">--<small> Hz</small></div>
+        <div class="bar"><i id="conf"></i></div></div>
+      <div class="tile"><div class="k">Duty Cycle</div><div class="v" id="duty">--<small> %</small></div></div>
+      <div class="tile"><div class="k">GPS Fix</div><div class="v" id="fix">--</div></div>
+      <div class="tile"><div class="k">Satellites</div><div class="v" id="sats">--</div></div>
+      <div class="tile pos"><div class="k">Position</div><div class="v" id="pos">no fix</div></div>
+      <div class="tile"><div class="k">Camera</div><div class="v" id="fps">--<small> fps</small></div></div>
+      <div class="tile"><div class="k">microSD</div><div class="v" id="sd">--</div></div>
+      <div class="tile"><div class="k">Detections</div><div class="v" id="count">0</div></div>
+    </div>
+
+    <div class="card">
+      <div class="row-head"><strong>Recent detections</strong>
+        <span class="spacer" style="flex:1"></span>
+        <a class="btn sm" href="/api/log" download>CSV</a></div>
+      <table><thead><tr><th>Time (UTC)</th><th>Lat</th><th>Lon</th>
+        <th class="right">Hz</th><th class="right">Duty</th><th class="right">Conf</th></tr></thead>
+        <tbody id="rows"><tr><td colspan="6" class="dim">no detections logged yet</td></tr></tbody></table>
+    </div>
+  </section>
+
+  <!-- ============ CAMERA ============ -->
+  <section id="camera" hidden>
+    <div class="card">
+      <div class="row-head"><strong>Live NIR view</strong><span style="flex:1"></span>
+        <button class="btn primary" id="camBtn">START LIVE VIEW</button></div>
+      <div class="hint" style="margin-top:0">The camera runs grayscale at low fixed exposure <i>for detection</i>, so this is
+        a <b>near-infrared view</b> - bright blobs are IR / light sources. Point it at a suspected ALPR and watch
+        for a fast-flickering hot spot. Refreshes a few frames/sec so detection keeps running.</div>
+      <div class="cam-wrap" id="camWrap">
+        <img id="cam" alt="">
+        <div class="cam-hud"><span id="camState">OFFLINE</span><span class="grow"></span><span id="camFps"></span></div>
+        <div class="cam-mark"><img src="/logo.png" alt="VTS"></div>
+      </div>
+
+      <div class="rec-bar">
+        <button class="btn" id="recBtn">REC</button>
+        <label class="radio" style="color:var(--ink)"><input type="checkbox" id="recAudio"> with audio</label>
+        <span id="recStat" class="dim" style="margin-left:auto"></span>
+      </div>
+      <div class="hint" style="margin-top:8px">Records to SD as MJPEG <b>AVI</b> (plays in VLC). "With audio" also
+        writes a matching <b>WAV</b> from the onboard mic (same name) - combine them in any editor. Recording
+        is the NIR view, same as above.</div>
+
+      <div class="row-head" style="margin-top:14px"><strong>Recordings</strong>
+        <span style="flex:1"></span><button class="btn sm ghost" id="recsRefresh">refresh</button></div>
+      <div id="recsList" class="hint">-</div>
+    </div>
+  </section>
+
+  <!-- ============ WARDRIVE ============ -->
+  <section id="wardrive" hidden>
+    <div class="card">
+      <div class="row-head"><strong>WiFi wardriver (WiGLE)</strong>
+        <span style="flex:1"></span>
+        <label class="switch"><input type="checkbox" id="wdEn"><span class="slider"></span></label></div>
+      <div class="hint" style="margin-top:0">Logs nearby 2.4&nbsp;GHz WiFi APs to a
+        <b>separate</b> WiGLE-format CSV (<code>/wardrive/wigle_*.csv</code>), GPS-tagged -
+        upload straight to wigle.net. Runs alongside IR detection. <b>Scanning auto-pauses while
+        a device is connected to this UI</b> (so the page stays fast) - turn it on, then
+        drive with the phone disconnected and it logs to SD on its own.</div>
+
+      <div class="grid">
+        <div class="tile"><div class="k">APs (last scan)</div><div class="v" id="wdTotal">--</div></div>
+        <div class="tile"><div class="k">New (last scan)</div><div class="v" id="wdNew">--</div></div>
+        <div class="tile"><div class="k">Rows logged</div><div class="v" id="wdLogged">0</div></div>
+        <div class="tile"><div class="k">Status</div><div class="v" id="wdStat">idle</div></div>
+      </div>
+
+      <div style="margin-top:16px"><a class="btn" href="/api/wardrive.csv" download>WiGLE CSV</a></div>
+      <div class="hint" id="wdFixNote"></div>
+    </div>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section id="settings" hidden>
+    <div class="card">
+      <div class="row-head"><strong>Buzzer &amp; alert tones</strong>
+        <span style="flex:1"></span>
+        <label class="switch"><input type="checkbox" id="buzEn"><span class="slider"></span></label></div>
+      <div class="hint" style="margin-top:0">Plays the selected tone when an ALPR IR flash is detected. Use a
+        <b>passive piezo buzzer</b> on <code>GPIO1 (D0)</code> to GND. Tones are stored on the device.</div>
+
+      <div id="tones"></div>
+
+      <div class="presets" id="presets"></div>
+
+      <div style="margin-top:16px;display:flex;gap:10px">
+        <button class="btn primary" id="save">SAVE TO DEVICE</button>
+        <button class="btn ghost" id="addTone">+ ADD TONE</button>
+      </div>
+
+      <div class="hint"><b>RTTTL format:</b> <code>name:d=4,o=6,b=180:notes</code> -
+        <code>d</code> default duration, <code>o</code> octave, <code>b</code> BPM; notes like
+        <code>8c6</code>, <code>16g#</code>, <code>p</code> (pause), <code>.</code> dotted.
+        Hit <b>Test</b> to preview any tone through the buzzer.</div>
+    </div>
+  </section>
+</div>
+
+<footer>
+  <span class="sig">- Your Pal <b>Kal</b></span>
+  <span class="spacer"></span>
+  <span>@valleytechsolutions | Valleytech Custom Solutions | Flock Noir v0.3</span>
+</footer>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+function fmt(x,d){return (x==null||isNaN(x))?'--':Number(x).toFixed(d);}
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1600);}
+
+/* ---- tabs ---- */
+const SECTIONS=['detector','camera','wardrive','settings'];
+$$('.tab').forEach(b=>b.onclick=()=>{
+  $$('.tab').forEach(x=>x.classList.toggle('on',x===b));
+  SECTIONS.forEach(s=>$('#'+s).hidden = b.dataset.tab!==s);
+  if(b.dataset.tab!=='camera') camStop();     // don't stream when not viewing
+  if(b.dataset.tab==='camera') loadRecs();
+  if(b.dataset.tab==='settings') loadSettings();
+});
+
+/* ---- recording ---- */
+async function loadRecs(){
+  try{const a=await (await fetch('/api/recs',{cache:'no-store'})).json();
+    $('#recsList').innerHTML = a.length ? a.map(f=>
+      '<div class="recfile"><span>'+f.name+'</span><span class="dim">'+(f.size/1024).toFixed(0)+
+      ' KB</span><a class="btn sm" href="/api/rec/get?f='+encodeURIComponent(f.name)+'" download>get</a></div>'
+      ).join('') : '<span class="dim">no recordings yet</span>';
+  }catch(e){}
+}
+$('#recsRefresh').onclick=loadRecs;
+$('#recBtn').onclick=async()=>{
+  const recording=$('#recBtn').classList.contains('on');
+  if(!recording){
+    const wa=$('#recAudio').checked?'1':'0';
+    const r=await (await fetch('/api/rec',{method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'action=start&audio='+wa})).json();
+    if(r.ok){ if(!camOn)$('#camBtn').click(); }
+    else toast('record failed - SD card in?');
+  } else {
+    await fetch('/api/rec',{method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'action=stop'});
+    setTimeout(loadRecs,700);
+  }
+};
+
+/* ---- live camera view ---- */
+let camOn=false, camFrames=0, camT0=0;
+const camImg=$('#cam');
+function camStop(){camOn=false;$('#camBtn').innerHTML='START LIVE VIEW';
+  $('#camState').textContent='OFFLINE';$('#camFps').textContent='';camImg.removeAttribute('src');}
+function camNext(){if(camOn)camImg.src='/api/frame.jpg?t='+Date.now();}
+camImg.onload=()=>{if(!camOn)return;camFrames++;const n=performance.now();
+  if(n-camT0>=1000){$('#camFps').textContent=camFrames+' fps';camFrames=0;camT0=n;}
+  setTimeout(camNext,50);};
+camImg.onerror=()=>{if(camOn)setTimeout(camNext,400);};
+$('#camBtn').onclick=()=>{camOn=!camOn;
+  if(camOn){$('#camBtn').innerHTML='STOP';$('#camState').textContent='LIVE';
+    camT0=performance.now();camFrames=0;camNext();}
+  else camStop();};
+$('#wdEn').onchange=()=>fetch('/api/wardrive',{method:'POST',
+  headers:{'Content-Type':'application/x-www-form-urlencoded'},
+  body:'en='+($('#wdEn').checked?'1':'0')});
+
+/* ---- detector polling ---- */
+let blink=0;
+async function tick(){
+  try{
+    const s=await (await fetch('/api/status',{cache:'no-store'})).json();
+    $('#led').style.background=(blink^=1)?'var(--green)':'var(--green-d)';
+    const b=$('#banner');
+    if(s.detected){b.className='banner alert';
+      $('#bannerTxt').textContent='IR CAMERA FLASH DETECTED  -  '+fmt(s.freq,1)+' Hz, '+fmt(s.duty*100,0)+'% duty, conf '+fmt(s.confidence,2);}
+    else{b.className='banner clear';$('#bannerTxt').textContent='SCANNING FOR IR CAMERA FLASH...';}
+    $('#freq').innerHTML=fmt(s.freq,1)+'<small> Hz</small>';
+    $('#duty').innerHTML=fmt(s.duty*100,0)+'<small> %</small>';
+    $('#conf').style.width=Math.round((s.confidence||0)*100)+'%';
+    $('#fix').innerHTML=s.fix?'<span class="ok">LOCK</span>':'<span class="no">no fix</span>';
+    $('#sats').textContent=s.sats??'--';
+    $('#pos').textContent=s.fix?(fmt(s.lat,6)+', '+fmt(s.lon,6)):'no fix';
+    $('#fps').innerHTML=fmt(s.fps,0)+'<small> fps</small>';
+    $('#sd').innerHTML=s.sd?'<span class="ok">ready</span>':'<span class="no">no card</span>';
+    $('#count').textContent=s.logged??0;
+    // recording button/state
+    if(s.rec){$('#recBtn').classList.add('on');
+      $('#recBtn').innerHTML='STOP '+(s.recSecs||0)+'s';
+      $('#recStat').textContent=(s.recAudio?'video+audio ':'video ')+(s.recFrames||0)+' frames';}
+    else{$('#recBtn').classList.remove('on');$('#recBtn').innerHTML='REC';$('#recStat').textContent='';}
+    // wardrive tiles
+    $('#wdTotal').textContent=s.wdTotal??'--';
+    $('#wdNew').textContent=s.wdNew??'--';
+    $('#wdLogged').textContent=s.wdLogged??0;
+    $('#wdStat').innerHTML=s.wd?(s.wdScan?'<span class="ok">scanning</span>':'<span class="ok">on</span>'):'<span class="dim">off</span>';
+    if(document.activeElement!==$('#wdEn'))$('#wdEn').checked=!!s.wd;
+    $('#wdFixNote').innerHTML=s.fix?'':'<b class="no">No GPS fix</b> - APs are counted but not written to CSV until a fix is acquired.';
+    if(s.time)$('#clock').textContent=s.time.replace('T',' ').replace('Z','');
+    const rows=$('#rows');
+    if(s.recent&&s.recent.length){rows.innerHTML=s.recent.map(a=>
+      '<tr><td>'+a.t+'</td><td>'+fmt(a.lat,6)+'</td><td>'+fmt(a.lon,6)+
+      '</td><td class="right ok">'+fmt(a.hz,1)+'</td><td class="right">'+fmt(a.duty*100,0)+
+      '%</td><td class="right">'+fmt(a.conf,2)+'</td></tr>').join('');}
+  }catch(e){$('#led').style.background='var(--red)';}
+}
+setInterval(tick,500); tick();
+
+/* ---- settings ---- */
+const PRESETS={
+ 'Power Rangers':'PwrRngr:d=16,o=6,b=200:c,e,g,c7,g7,c7,g,e,c,e,g',
+ 'Nokia':'Nokia:d=4,o=5,b=225:8e6,8d6,f#,g#,8c#6,8b,d,e,8b,8a,c#,e,2a',
+ 'Mario':'Mario:d=4,o=5,b=100:16e6,16e6,32p,8e6,16c6,8e6,8g6,8p,8g',
+ 'Alarm':'Alarm:d=8,o=6,b=180:c,p,c,p,c7,p,c7,p,g,p,g',
+ 'Chirp':'Chirp:d=32,o=7,b=200:c,p,c,p,c'
+};
+let MAXTONES=5;
+function toneCard(i,name,rtttl,isAlert){
+ return '<div class="tone'+(isAlert?' alert-on':'')+'" data-i="'+i+'">'+
+  '<div class="thead"><span class="idx">#'+i+'</span>'+
+   '<input type="text" class="tname grow" value="'+(name||'').replace(/"/g,'&quot;')+'" placeholder="tone name">'+
+   '<label class="radio"><input type="radio" name="alertIdx" value="'+i+'" '+(isAlert?'checked':'')+'>ALERT</label>'+
+   '<button class="btn sm test">Test</button>'+
+   '<button class="btn sm ghost del">x</button></div>'+
+  '<textarea class="trtttl" spellcheck="false">'+(rtttl||'')+'</textarea></div>';
+}
+async function loadSettings(){
+ const s=await (await fetch('/api/settings',{cache:'no-store'})).json();
+ MAXTONES=s.max||5;
+ $('#buzEn').checked=!!s.enabled;
+ $('#tones').innerHTML=s.tones.map((t,i)=>toneCard(i,t.name,t.rtttl,i===s.alertIdx)).join('');
+ $('#presets').innerHTML='<span class="dim" style="align-self:center;font-size:11px">presets:</span>'+
+   Object.keys(PRESETS).map(k=>'<button class="chip" data-p="'+k+'">'+k+'</button>').join('');
+ bindSettings();
+}
+function bindSettings(){
+ $$('#tones .test').forEach(b=>b.onclick=e=>{
+   const rt=e.target.closest('.tone').querySelector('.trtttl').value;
+   fetch('/api/test',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
+     body:'rtttl='+encodeURIComponent(rt)});toast('testing...');});
+ $$('#tones .del').forEach(b=>b.onclick=e=>{
+   if($$('#tones .tone').length<=1){toast('keep at least one');return;}
+   e.target.closest('.tone').remove();renumber();});
+ $$('#tones .radio input').forEach(r=>r.onchange=()=>{
+   $$('#tones .tone').forEach(t=>t.classList.toggle('alert-on',
+     t.querySelector('.radio input').checked));});
+ $$('#presets .chip').forEach(c=>c.onclick=()=>{
+   if($$('#tones .tone').length>=MAXTONES){toast('max '+MAXTONES+' tones');return;}
+   const i=$$('#tones .tone').length;
+   $('#tones').insertAdjacentHTML('beforeend',toneCard(i,c.dataset.p,PRESETS[c.dataset.p],false));
+   bindSettings();});
+}
+function renumber(){$$('#tones .tone').forEach((t,i)=>{t.dataset.i=i;
+  t.querySelector('.idx').textContent='#'+i;t.querySelector('.radio input').value=i;});}
+$('#addTone').onclick=()=>{
+  if($$('#tones .tone').length>=MAXTONES){toast('max '+MAXTONES+' tones');return;}
+  const i=$$('#tones .tone').length;
+  $('#tones').insertAdjacentHTML('beforeend',toneCard(i,'Custom '+i,'Custom:d=8,o=6,b=180:c,e,g',false));
+  bindSettings();};
+$('#save').onclick=async()=>{
+  const tones=$$('#tones .tone');
+  const p=new URLSearchParams();
+  p.set('enabled',$('#buzEn').checked?'1':'0');
+  const sel=$('#tones .radio input:checked');
+  p.set('alertIdx',sel?sel.value:'0');
+  p.set('count',tones.length);
+  tones.forEach((t,i)=>{p.set('nm'+i,t.querySelector('.tname').value);
+                        p.set('rt'+i,t.querySelector('.trtttl').value);});
+  await fetch('/api/settings',{method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p.toString()});
+  toast('saved to device');renumber();
+};
+</script></body></html>
+)HTMLPAGE";
