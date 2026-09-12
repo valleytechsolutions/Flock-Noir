@@ -35,6 +35,7 @@
 #include "buzzer.h"
 #include "wardriver.h"
 #include "recorder.h"
+#include "irsensor.h"
 #include "web_ui.h"
 #include "logo.h"
 
@@ -49,16 +50,18 @@ HardwareSerial GPSserial(GPS_UART_NUM);
 Detector    detector;
 
 bool     g_sdReady   = false;
+uint32_t g_sdTotalMB = 0, g_sdFreeMB = 0;
 uint32_t g_scanned   = 1;            // scanned pixels per frame
 uint32_t g_logged    = 0;
 uint32_t g_lastAlert = 0;
+bool     g_muted     = false;        // quick "mute alerts" (still logs)
 String   g_csvPath;
 
 // fps estimate
 uint32_t g_frames = 0, g_fpsWin = 0;
 float    g_fps = 0;
 
-struct RecentAlert { char t[24]; double lat, lon; float hz, duty, conf; };
+struct RecentAlert { char t[24]; char src[8]; double lat, lon; float hz, duty, conf; };
 RecentAlert g_recent[RECENT_ALERTS];
 int         g_recentCount = 0, g_recentHead = 0;
 
@@ -178,11 +181,16 @@ bool initSD() {
   if (!f) { Serial.println("[SD] cannot open csv"); return false; }
   f.println(CSV_HEADER);
   f.close();
-  Serial.printf("[SD] IR log -> %s\n", g_csvPath.c_str());
+  g_sdTotalMB = (uint32_t)(SD.totalBytes() >> 20);
+  g_sdFreeMB  = (uint32_t)((SD.totalBytes() - SD.usedBytes()) >> 20);
+  Serial.printf("[SD] IR log -> %s  (%lu/%lu MB free)\n",
+                g_csvPath.c_str(), (unsigned long)g_sdFreeMB, (unsigned long)g_sdTotalMB);
   return true;
 }
 
-void logDetection(const DetectionResult &d, uint16_t bx, uint16_t by) {
+// Generic hit logger used by BOTH the camera detector and the IR photodiode.
+void logHit(const char *source, float freqHz, float duty, float conf,
+            uint16_t bx, uint16_t by, float blobFrac, uint16_t levelPP) {
   char iso[24]; isoUtc(iso, sizeof(iso));
   double lat = gps.location.isValid() ? gps.location.lat() : NAN;
   double lon = gps.location.isValid() ? gps.location.lng() : NAN;
@@ -193,7 +201,8 @@ void logDetection(const DetectionResult &d, uint16_t bx, uint16_t by) {
   // remember for the web UI
   RecentAlert &ra = g_recent[g_recentHead];
   strncpy(ra.t, iso, sizeof(ra.t)); ra.t[sizeof(ra.t)-1]=0;
-  ra.lat = lat; ra.lon = lon; ra.hz = d.freqHz; ra.duty = d.dutyCycle; ra.conf = d.confidence;
+  strncpy(ra.src, source, sizeof(ra.src)); ra.src[sizeof(ra.src)-1]=0;
+  ra.lat = lat; ra.lon = lon; ra.hz = freqHz; ra.duty = duty; ra.conf = conf;
   g_recentHead = (g_recentHead + 1) % RECENT_ALERTS;
   if (g_recentCount < RECENT_ALERTS) g_recentCount++;
 
@@ -202,14 +211,18 @@ void logDetection(const DetectionResult &d, uint16_t bx, uint16_t by) {
   if (g_sdReady) {
     File f = SD.open(g_csvPath, FILE_APPEND);
     if (f) {
-      f.printf("%s,%llu,%.6f,%.6f,%.1f,%d,%.1f,%.2f,%.3f,%.3f,%u,%u,%.3f,%u\n",
-               iso, (unsigned long long)millis(), lat, lon, alt, sats, hdop,
-               d.freqHz, d.dutyCycle, d.confidence, bx, by, d.blobFrac, d.levelPP);
+      f.printf("%s,%llu,%s,%.6f,%.6f,%.1f,%d,%.1f,%.2f,%.3f,%.3f,%u,%u,%.3f,%u\n",
+               iso, (unsigned long long)millis(), source, lat, lon, alt, sats, hdop,
+               freqHz, duty, conf, bx, by, blobFrac, levelPP);
       f.close();
     }
   }
-  Serial.printf("[ALERT] %s  %.6f,%.6f  %.1fHz duty=%.0f%% conf=%.2f\n",
-                iso, lat, lon, d.freqHz, d.dutyCycle*100, d.confidence);
+  Serial.printf("[ALERT/%s] %s  %.6f,%.6f  %.1fHz duty=%.0f%% conf=%.2f\n",
+                source, iso, lat, lon, freqHz, duty*100, conf);
+}
+
+void logDetection(const DetectionResult &d, uint16_t bx, uint16_t by) {
+  logHit("camera", d.freqHz, d.dutyCycle, d.confidence, bx, by, d.blobFrac, d.levelPP);
 }
 
 // ---------------------------------------------------------------------------
@@ -269,12 +282,39 @@ void handleStatus() {
     for (int i = 0; i < wn; i++) { if (i) j += ","; j += String(w[i]); }
     j += "]";
   }
+  // IR photodiode sensor
+  IrResult ir = irSensor.result();
+  j += ",\"irEn\":"    + String(irSensor.enabled() ? "true":"false");
+  j += ",\"irDet\":"   + String(ir.detected ? "true":"false");
+  j += ",\"irPresent\":"+ String(ir.present ? "true":"false");
+  j += ",\"irFreq\":"  + String(ir.freqHz, 1);
+  j += ",\"irDuty\":"  + String(ir.dutyCycle, 3);
+  j += ",\"irAmp\":"   + String(ir.amp);
+  {
+    uint8_t w[64]; int wn = irSensor.snapshot(w, 64);
+    j += ",\"irWave\":[";
+    for (int i = 0; i < wn; i++) { if (i) j += ","; j += String(w[i]); }
+    j += "]";
+  }
+  // system / QoL
+  j += ",\"muted\":"   + String(g_muted ? "true":"false");
+  j += ",\"uptime\":"  + String((uint32_t)(millis()/1000));
+  {
+    static uint32_t sdT = 0;
+    if (g_sdReady && (millis() - sdT > 10000)) {
+      sdT = millis();
+      g_sdFreeMB = (uint32_t)((SD.totalBytes() - SD.usedBytes()) >> 20);
+    }
+  }
+  j += ",\"sdFree\":"  + String(g_sdFreeMB);
+  j += ",\"sdTotal\":" + String(g_sdTotalMB);
   j += ",\"recent\":[";
   for (int i = 0; i < g_recentCount; i++) {
     int idx = (g_recentHead - 1 - i + RECENT_ALERTS) % RECENT_ALERTS;
     RecentAlert &ra = g_recent[idx];
     if (i) j += ",";
-    j += "{\"t\":\"" + String(ra.t) + "\",\"lat\":" + String(ra.lat,6) +
+    j += "{\"t\":\"" + String(ra.t) + "\",\"src\":\"" + String(ra.src) +
+         "\",\"lat\":" + String(ra.lat,6) +
          ",\"lon\":" + String(ra.lon,6) + ",\"hz\":" + String(ra.hz,2) +
          ",\"duty\":" + String(ra.duty,3) + ",\"conf\":" + String(ra.conf,3) + "}";
   }
@@ -376,6 +416,18 @@ void handleWardrive() {
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
+// Toggle the IR photodiode detector on/off (POST en=0/1).
+void handleIrSensor() {
+  if (server.hasArg("en")) irSensor.setEnabled(server.arg("en") == "1");
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+// Toggle "mute alerts" (POST en=0/1) - silences the buzzer, still logs.
+void handleMute() {
+  if (server.hasArg("en")) g_muted = (server.arg("en") == "1");
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
 // Serve the brand logo UNALTERED: prefer an SD /logo.png override, else the
 // copy embedded in flash (logo.h).
 void handleLogo() {
@@ -434,6 +486,7 @@ void setup() {
 
   g_sdReady = initSD();
   recorder.begin(g_sdReady);
+  irSensor.begin();                  // starts the 1 kHz ADC sampling task
 
   // AP + STA: SoftAP serves the UI; STA lets the wardriver scan WiFi.
   WiFi.mode(WIFI_AP_STA);
@@ -460,6 +513,8 @@ void setup() {
   server.on("/api/log", handleLog);
   server.on("/api/wardrive.csv", handleWardriveCsv);
   server.on("/api/wardrive", HTTP_POST, handleWardrive);
+  server.on("/api/irsensor", HTTP_POST, handleIrSensor);
+  server.on("/api/mute", HTTP_POST, handleMute);
   server.on("/api/rec", HTTP_POST, handleRec);
   server.on("/api/recs", handleRecs);
   server.on("/api/rec/get", handleRecGet);
@@ -513,7 +568,7 @@ void loop() {
       if (d.detected && (now - g_lastAlert >= ALERT_HOLDOFF_MS)) {
         g_lastAlert = now;
         logDetection(d, s_cx, s_cy);
-        buzzer.playAlert();               // sound the configured alert tone
+        if (!g_muted) buzzer.playAlert();  // sound the configured alert tone
       }
     }
 
@@ -521,6 +576,18 @@ void loop() {
     if (now - g_fpsWin >= 1000) {
       g_fps = g_frames * 1000.0f / (now - g_fpsWin);
       g_frames = 0; g_fpsWin = now;
+    }
+  }
+
+  // 3b) IR photodiode detector (runs on its own 1 kHz task; we just act on it)
+  if (irSensor.enabled()) {
+    IrResult ir = irSensor.result();
+    uint32_t now = millis();
+    if (ir.detected && (now - g_lastAlert >= ALERT_HOLDOFF_MS)) {
+      g_lastAlert = now;
+      float conf = ir.validCount >= 8 ? 1.0f : ir.validCount / 8.0f;
+      logHit("ir", ir.freqHz, ir.dutyCycle, conf, 0, 0, 0, ir.amp);
+      if (!g_muted) buzzer.playAlert();
     }
   }
 

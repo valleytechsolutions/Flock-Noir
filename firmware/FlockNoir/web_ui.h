@@ -171,6 +171,11 @@ footer .spacer{flex:1}
     <div id="banner" class="banner clear">
       <span id="bannerTxt">SCANNING FOR IR CAMERA FLASH...</span></div>
 
+    <div style="display:flex;align-items:center;gap:16px;margin-top:10px;font-size:11px;color:var(--mut);flex-wrap:wrap">
+      <label class="radio" style="color:var(--ink)"><input type="checkbox" id="mute"> mute alerts</label>
+      <span id="sysInfo"></span>
+    </div>
+
     <div class="grid">
       <div class="tile"><div class="k">Signal</div><div class="v" id="freq">--<small> Hz</small></div>
         <div class="bar"><i id="conf"></i></div></div>
@@ -195,12 +200,24 @@ footer .spacer{flex:1}
     </div>
 
     <div class="card">
+      <div class="row-head"><strong>IR photodiode sensor</strong>
+        <span style="flex:1"></span>
+        <span class="dim" id="irMeta" style="font-size:11px;margin-right:12px"></span>
+        <label class="switch"><input type="checkbox" id="irEn"><span class="slider"></span></label></div>
+      <canvas id="irwave" width="880" height="70"
+        style="width:100%;height:70px;display:block;background:#060c11;border:1px solid var(--line);border-radius:8px"></canvas>
+      <div class="hint" style="margin-top:8px">High-accuracy path (samples at 1 kHz, nails the exact pulse). Wire an 850 nm
+        photodiode / phototransistor to <b>D1 (GPIO2)</b> - see <a href="https://github.com/valleytechsolutions/Flock-Noir/blob/main/HARDWARE.md">HARDWARE.md</a> -
+        then flip this on. Status: <b id="irStat">off</b>.</div>
+    </div>
+
+    <div class="card">
       <div class="row-head"><strong>Recent detections</strong>
         <span class="spacer" style="flex:1"></span>
         <a class="btn sm" href="/api/log" download>CSV</a></div>
-      <table><thead><tr><th>Time (UTC)</th><th>Lat</th><th>Lon</th>
+      <table><thead><tr><th>Time (UTC)</th><th>Src</th><th>Lat</th><th>Lon</th>
         <th class="right">Hz</th><th class="right">Duty</th><th class="right">Conf</th></tr></thead>
-        <tbody id="rows"><tr><td colspan="6" class="dim">no detections logged yet</td></tr></tbody></table>
+        <tbody id="rows"><tr><td colspan="7" class="dim">no detections logged yet</td></tr></tbody></table>
     </div>
   </section>
 
@@ -295,16 +312,16 @@ footer .spacer{flex:1}
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 function fmt(x,d){return (x==null||isNaN(x))?'--':Number(x).toFixed(d);}
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1600);}
-let _wctx=null;
-function drawWave(arr){
-  const c=document.getElementById('wave'); if(!c)return;
-  if(!_wctx)_wctx=c.getContext('2d');
-  const ctx=_wctx,W=c.width,H=c.height;
+const _wctx={};
+function drawWaveOn(id,arr,color){
+  const c=document.getElementById(id); if(!c)return;
+  if(!_wctx[id])_wctx[id]=c.getContext('2d');
+  const ctx=_wctx[id],W=c.width,H=c.height;
   ctx.clearRect(0,0,W,H);
   ctx.strokeStyle='rgba(95,118,129,.25)';ctx.lineWidth=1;
   ctx.beginPath();ctx.moveTo(0,H-1);ctx.lineTo(W,H-1);ctx.stroke();
-  if(!arr.length)return;
-  ctx.strokeStyle='#3dfba0';ctx.lineWidth=2;ctx.beginPath();
+  if(!arr||!arr.length)return;
+  ctx.strokeStyle=color||'#3dfba0';ctx.lineWidth=2;ctx.beginPath();
   for(let i=0;i<arr.length;i++){
     const x=arr.length>1?i/(arr.length-1)*W:0;
     const y=H-4-(arr[i]/100)*(H-8);
@@ -365,6 +382,9 @@ $('#camBtn').onclick=()=>{camOn=!camOn;
 $('#wdEn').onchange=()=>fetch('/api/wardrive',{method:'POST',
   headers:{'Content-Type':'application/x-www-form-urlencoded'},
   body:'en='+($('#wdEn').checked?'1':'0')});
+const post=(u,en)=>fetch(u,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'en='+(en?'1':'0')});
+$('#mute').onchange=()=>post('/api/mute',$('#mute').checked);
+$('#irEn').onchange=()=>post('/api/irsensor',$('#irEn').checked);
 
 /* ---- detector polling ---- */
 let blink=0;
@@ -385,9 +405,21 @@ async function tick(){
     else                $('#fix').innerHTML='<span style="color:var(--amber)">acquiring</span>';
     $('#sats').innerHTML=(s.sats??'--')+' <small style="color:var(--mut)">hdop '+fmt(s.hdop,1)+'</small>';
     $('#pos').textContent=s.fix?(fmt(s.lat,6)+', '+fmt(s.lon,6)):(s.gpsChars>0?'searching...':'no gps');
-    // live signal scope
-    drawWave(s.wave||[]);
+    // live signal scope (camera)
+    drawWaveOn('wave',s.wave||[],'#3dfba0');
     $('#sigMeta').textContent='amp '+(s.amp??0)+'  |  '+fmt(s.freq,1)+' Hz';
+    // IR photodiode sensor
+    if(document.activeElement!==$('#irEn'))$('#irEn').checked=!!s.irEn;
+    drawWaveOn('irwave',s.irWave||[],s.irDet?'#ff4d5e':'#57b6ff');
+    $('#irMeta').textContent=(s.irEn?('amp '+(s.irAmp??0)+'  |  '+fmt(s.irFreq,1)+' Hz'):'');
+    $('#irStat').innerHTML = !s.irEn ? 'off'
+      : (s.irDet ? '<span class="no">PULSE DETECTED</span>'
+        : (s.irPresent ? '<span class="ok">armed - sensor connected</span>'
+          : '<span style="color:var(--amber)">armed - no sensor signal</span>'));
+    // system / QoL
+    if(document.activeElement!==$('#mute'))$('#mute').checked=!!s.muted;
+    const up=s.uptime||0, hh=Math.floor(up/3600), mm=Math.floor((up%3600)/60);
+    $('#sysInfo').textContent='uptime '+hh+'h '+mm+'m  |  SD '+(s.sdFree??'?')+'/'+(s.sdTotal??'?')+' MB free';
     $('#fps').innerHTML=fmt(s.fps,0)+'<small> fps</small>';
     $('#sd').innerHTML=s.sd?'<span class="ok">ready</span>':'<span class="no">no card</span>';
     $('#count').textContent=s.logged??0;
@@ -406,7 +438,7 @@ async function tick(){
     if(s.time)$('#clock').textContent=s.time.replace('T',' ').replace('Z','');
     const rows=$('#rows');
     if(s.recent&&s.recent.length){rows.innerHTML=s.recent.map(a=>
-      '<tr><td>'+a.t+'</td><td>'+fmt(a.lat,6)+'</td><td>'+fmt(a.lon,6)+
+      '<tr><td>'+a.t+'</td><td>'+(a.src||'')+'</td><td>'+fmt(a.lat,6)+'</td><td>'+fmt(a.lon,6)+
       '</td><td class="right ok">'+fmt(a.hz,1)+'</td><td class="right">'+fmt(a.duty*100,0)+
       '%</td><td class="right">'+fmt(a.conf,2)+'</td></tr>').join('');}
   }catch(e){$('#led').style.background='var(--red)';}

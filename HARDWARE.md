@@ -116,3 +116,64 @@ On power-up the board plays a **boot jingle**, which confirms the buzzer works.
 - **IR pipeline:** point a **TV/AC remote** at the lens and press buttons - remotes pulse IR
   (at a different rate), a quick way to confirm the camera + detector chain is alive. Real
   detection still requires the correct signature **and your visual confirmation.**
+
+---
+
+## IR photodiode sensor (high-accuracy detection)
+
+The camera samples at ~40 fps, which is too slow to prove a 20 ms pulse. An analog **850 nm
+photodiode** sampled at ~1 kHz captures the exact 10 Hz / 20 % pulse cleanly. This is the
+method proven by the open-source **[Noflock/Flock-IR-Detection](https://github.com/Noflock/Flock-IR-Detection)**
+project (reliable at highway speed), and Flock Noir implements the same approach. The
+firmware samples an ADC pin on a dedicated 1 kHz task, tracks an ambient baseline, and
+validates rising-edge intervals against the 5-15 Hz band.
+
+**ADC pin:** the photodiode signal goes to **D1 / GPIO2** (an ADC1 channel, which works with
+Wi-Fi on). Set `IR_SENSOR_PIN` in `config.h` to move it. Enable the sensor from the
+**Detector** tab (IR photodiode toggle) once it is wired.
+
+### Option A - transimpedance amplifier (best, what Noflock uses)
+
+```
+                    4.7 MΩ
+              +-----/\/\/-----+
+              |               |
+              |     10 pF     |
+              +----||---------+
+              |               |
+ photodiode   |   |\          |
+ (BPW34,      |   | \         |
+  cathode +)  +---|- \        |
+      |           |   >-------+------> D1 / GPIO2 (ADC)
+      |       +---|+ /
+     GND      |   | /
+              |   |/  MCP6002 (rail-to-rail, 3.3V)
+             3V3
+```
+- Photodiode: **BPW34** (or BPW34NA, IR-enhanced), cathode to the op-amp input.
+- Op-amp: **MCP6002** (dual, cheap, rail-to-rail). Feedback **4.7 MΩ** + **10 pF**.
+- Output sits near ~0.2 V in the dark and swings toward 3.3 V on a strong IR pulse.
+- Put an **IR-pass filter** over the diode (mylar, or a strip of exposed/developed film
+  negative) to block visible light and cut false positives.
+
+### Option B - phototransistor (simplest, no op-amp)
+
+```
+ 3V3 ---- collector [phototransistor] emitter ----+---- D1 / GPIO2 (ADC)
+                                                   |
+                                                 [10k] load resistor
+                                                   |
+                                                  GND
+```
+- More IR light -> more current -> higher voltage at D1. Cheaper and fewer parts, but less
+  sensitive and slower than the transimpedance design.
+
+### Multi-sensor
+
+Noflock uses three sensors (rear + roof) for coverage at speed. The firmware currently reads
+one ADC pin; adding more channels (D2/GPIO3, D3/GPIO4 - also ADC1) is a small change and is
+on the roadmap.
+
+*Credit: the photodiode circuit and the edge/period detection approach follow
+[Noflock/Flock-IR-Detection](https://github.com/Noflock/Flock-IR-Detection) and the broader
+Flock-IR-detection community.*

@@ -152,6 +152,28 @@
 #define SAMPLE_BUFFER      256       // ~5-8 s of frames depending on fps
 #define ANALYZE_EVERY_MS   300       // run the analyzer this often
 
+// -----------------------------------------------------------------------------
+//  IR photodiode sensor (analog) - the HIGH-ACCURACY detection path.
+//  An 850 nm photodiode + transimpedance amp (or an IR phototransistor) into an
+//  ADC pin, sampled at ~1 kHz, captures the exact 10 Hz / 20% pulse that the
+//  camera can only approximate. Algorithm follows the proven open-source
+//  Noflock/Flock-IR-Detection approach (EMA baseline + edge/period validation).
+//  See HARDWARE.md for the wiring. Use an ADC1 pin (ADC1 works with WiFi on;
+//  ADC2 does not). D1/GPIO2 = ADC1_CH1 is free.
+// -----------------------------------------------------------------------------
+#define IR_SENSOR_PIN         2       // D1 / GPIO2 (ADC1_CH1)
+#define IR_SAMPLE_HZ          1000    // ADC samples per second
+#define IR_RING               256     // decimated scope ring (for the UI)
+#define IR_REFRACTORY_MS      15      // min gap between counted rising edges
+#define IR_MIN_HZ             5.0f     // valid pulse band (Flock ~10 Hz)
+#define IR_MAX_HZ             15.0f
+#define IR_REQUIRED_INTERVALS 4       // consecutive valid intervals -> detection
+#define IR_ACTIVE_WINDOW_MS   2500    // hold a detection this long after last pulse
+#define IR_THR_IDLE           120     // AC threshold (12-bit counts) to arm an edge
+#define IR_THR_LOCKED         70      // lower threshold once tracking (hysteresis)
+#define IR_BASELINE_ALPHA     0.002f  // EMA rate for ambient-light baseline
+#define IR_DEFAULT_ENABLED    0       // 0 = off until you wire the sensor
+
 // Re-arm: suppress duplicate log rows / beeps for the same source for this long.
 #define ALERT_HOLDOFF_MS   4000
 
@@ -159,7 +181,7 @@
 //  Logging
 // -----------------------------------------------------------------------------
 #define CSV_DIR            "/logs"          // IR-detection CSVs live here
-#define CSV_HEADER  "iso_utc,unix_ms,lat,lon,alt_m,sats,hdop,freq_hz,duty,confidence,blob_x,blob_y,blob_frac,level_pp"
+#define CSV_HEADER  "iso_utc,unix_ms,source,lat,lon,alt_m,sats,hdop,freq_hz,duty,confidence,blob_x,blob_y,blob_frac,level_pp"
 #define RECENT_ALERTS      12        // how many recent alerts the web UI keeps
 
 // -----------------------------------------------------------------------------

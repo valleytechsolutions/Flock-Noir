@@ -100,8 +100,11 @@ pulse, so the firmware works in the time domain:
   your eyes make the call.
 
 The most robust way to confirm the exact timing is a dedicated 850 nm photodiode on an ADC
-pin sampled at 1 to 2 kHz. That is the planned next upgrade, and the code is structured so
-it can drop in alongside the camera path.
+pin sampled at ~1 kHz. **This is now built in** as a second, high-accuracy detector
+(`irsensor.cpp`) that runs alongside the camera - enable it on the Detector tab once the
+sensor is wired. It follows the proven [Noflock/Flock-IR-Detection](https://github.com/Noflock/Flock-IR-Detection)
+approach. For the full background on how ALPR IR works and how both detectors operate, see
+**[DETECTION.md](DETECTION.md)**; for the circuit, see [HARDWARE.md](HARDWARE.md).
 
 ---
 
@@ -223,6 +226,8 @@ A TV remote (IR, at a different rate) is a handy way to confirm the pipeline is 
 .
 |-- README.md                    this file
 |-- HARDWARE.md                  parts list (with Seeed links), wiring, assembly
+|-- DETECTION.md                 how ALPR IR works and how both detectors operate
+|-- UPGRADES.md                  low-cost add-ons
 |-- CHANGELOG.md
 |-- LICENSE                      MIT (plus an experimental-software notice)
 |-- binaries/
@@ -236,6 +241,7 @@ A TV remote (IR, at a different rate) is a handy way to confirm the pipeline is 
         |-- buzzer.h/.cpp        non-blocking RTTTL player and NVS tone library
         |-- wardriver.h/.cpp     async Wi-Fi scan to WiGLE CSV
         |-- recorder.h/.cpp      MJPEG-AVI writer with optional WAV
+        |-- irsensor.h/.cpp      analog 850nm photodiode detector (1 kHz ADC task)
         |-- web_ui.h             the web app, served from flash
         |-- logo.h               embedded logo (generated)
         |-- assets/logo.png      source logo
@@ -266,6 +272,9 @@ Thanks to:
   [colonelpanic.tech](https://colonelpanic.tech/), [Tindie](https://www.tindie.com/products/colonel_panic/oui-spy/)).
   OUI Spy pioneered approachable ESP32 hardware for passively detecting surveillance
   devices, and was a primary inspiration for the signature-detection approach here.
+- **Noflock / Flock-IR-Detection** ([github.com/Noflock/Flock-IR-Detection](https://github.com/Noflock/Flock-IR-Detection)).
+  The photodiode circuit and the edge/period IR-detection algorithm in Flock Noir follow this
+  project's proven approach for passively detecting Flock IR pulses at speed.
 - **Midwest Gadgets (@hamspiced), Piglet wardriver** ([github.com/hamspiced/piglet](https://github.com/hamspiced/piglet),
   [midwestgadgets.org](https://www.midwestgadgets.org/product-page/piglet)). The Wi-Fi
   wardriving side of this project, WiGLE-format logging on the XIAO with a web UI, is
