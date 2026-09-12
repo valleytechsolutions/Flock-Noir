@@ -255,6 +255,20 @@ void handleStatus() {
     j += ",\"lon\":" + String(gps.location.lng(), 6);
   }
   j += ",\"time\":\"" + String(iso) + "\"";
+  // GPS health: chars proves the module is wired + talking at the right baud;
+  // good/fail are valid/invalid NMEA sentences.
+  j += ",\"gpsChars\":" + String((uint32_t)gps.charsProcessed());
+  j += ",\"gpsGood\":"  + String((uint32_t)gps.passedChecksum());
+  j += ",\"gpsFail\":"  + String((uint32_t)gps.failedChecksum());
+  j += ",\"hdop\":"     + String(gps.hdop.isValid() ? gps.hdop.hdop() : 0.0, 1);
+  // Live signal diagnostic: amplitude + a recent brightness waveform (0..100).
+  j += ",\"amp\":"      + String(d.levelPP);
+  {
+    uint8_t w[64]; int wn = detector.snapshot(w, 64);
+    j += ",\"wave\":[";
+    for (int i = 0; i < wn; i++) { if (i) j += ","; j += String(w[i]); }
+    j += "]";
+  }
   j += ",\"recent\":[";
   for (int i = 0; i < g_recentCount; i++) {
     int idx = (g_recentHead - 1 - i + RECENT_ALERTS) % RECENT_ALERTS;
@@ -464,6 +478,18 @@ void loop() {
 
   // 1) feed GPS bytes
   while (GPSserial.available()) gps.encode(GPSserial.read());
+
+  // GPS health heartbeat on the serial console (every 5 s)
+  static uint32_t gpsDbg = 0;
+  if (millis() - gpsDbg >= 5000) {
+    gpsDbg = millis();
+    Serial.printf("[GPS] chars=%lu good=%lu fail=%lu sats=%d fix=%d\n",
+                  (unsigned long)gps.charsProcessed(),
+                  (unsigned long)gps.passedChecksum(),
+                  (unsigned long)gps.failedChecksum(),
+                  gps.satellites.isValid() ? gps.satellites.value() : 0,
+                  gps.location.isValid() ? 1 : 0);
+  }
 
   // 2) grab + scan one camera frame
   camera_fb_t *fb = esp_camera_fb_get();

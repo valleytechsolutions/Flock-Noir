@@ -39,6 +39,10 @@ public:
   DetectionResult analyze();
   DetectionResult last() const { return _last; }
 
+  // Copy the most recent up-to-maxN brightness samples, normalized 0..100 over
+  // their own min/max, into out[]. Returns the count. For the live UI waveform.
+  int snapshot(uint8_t *out, int maxN) const;
+
 private:
   Sample   _buf[SAMPLE_BUFFER];
   int      _head = 0;      // next write index

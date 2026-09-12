@@ -22,6 +22,24 @@ static inline int idxAt(int head, int count, int i) {
   return (start + i) % SAMPLE_BUFFER;
 }
 
+int Detector::snapshot(uint8_t *out, int maxN) const {
+  int n = (_count < maxN) ? _count : maxN;
+  if (n <= 0) return 0;
+  int start = _count - n;                      // most recent n samples
+  uint16_t vmin = 0xFFFF, vmax = 0;
+  for (int i = 0; i < n; i++) {
+    uint16_t v = _buf[idxAt(_head, _count, start + i)].level;
+    if (v < vmin) vmin = v;
+    if (v > vmax) vmax = v;
+  }
+  int range = (vmax > vmin) ? (vmax - vmin) : 1;
+  for (int i = 0; i < n; i++) {
+    uint16_t v = _buf[idxAt(_head, _count, start + i)].level;
+    out[i] = (uint8_t)(((int)(v - vmin) * 100) / range);
+  }
+  return n;
+}
+
 DetectionResult Detector::analyze() {
   DetectionResult r;
   if (_count < MIN_GOOD_CYCLES * 2) { _last = r; return r; }

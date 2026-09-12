@@ -108,7 +108,8 @@ it can drop in alongside the camera path.
 ## Hardware
 
 A complete, linked bill of materials, wiring diagram, and assembly guide is in
-[HARDWARE.md](HARDWARE.md). In short you need:
+[HARDWARE.md](HARDWARE.md), and low-cost add-ons that make it better (a de-filtered lens,
+an IR photodiode, battery, OLED) are in [UPGRADES.md](UPGRADES.md). In short you need:
 
 - Seeed Studio XIAO ESP32-S3 Sense (has the OV2640 camera and microSD slot on board)
 - A microSD card (FAT32)

@@ -184,6 +184,17 @@ footer .spacer{flex:1}
     </div>
 
     <div class="card">
+      <div class="row-head"><strong>Signal scope (live)</strong>
+        <span style="flex:1"></span>
+        <span class="dim" id="sigMeta" style="font-size:11px"></span></div>
+      <canvas id="wave" width="880" height="90"
+        style="width:100%;height:90px;display:block;background:#060c11;border:1px solid var(--line);border-radius:8px"></canvas>
+      <div class="hint" style="margin-top:8px">Live near-IR brightness of the brightest spot in view. A real ALPR pulse
+        shows here as a regular fast flicker. <b>If this stays flat while you aim at a camera, the sensor is not seeing
+        850 nm</b> - almost always the stock IR-cut lens; swap to the IR-filter-removed lens.</div>
+    </div>
+
+    <div class="card">
       <div class="row-head"><strong>Recent detections</strong>
         <span class="spacer" style="flex:1"></span>
         <a class="btn sm" href="/api/log" download>CSV</a></div>
@@ -284,6 +295,23 @@ footer .spacer{flex:1}
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 function fmt(x,d){return (x==null||isNaN(x))?'--':Number(x).toFixed(d);}
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1600);}
+let _wctx=null;
+function drawWave(arr){
+  const c=document.getElementById('wave'); if(!c)return;
+  if(!_wctx)_wctx=c.getContext('2d');
+  const ctx=_wctx,W=c.width,H=c.height;
+  ctx.clearRect(0,0,W,H);
+  ctx.strokeStyle='rgba(95,118,129,.25)';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(0,H-1);ctx.lineTo(W,H-1);ctx.stroke();
+  if(!arr.length)return;
+  ctx.strokeStyle='#3dfba0';ctx.lineWidth=2;ctx.beginPath();
+  for(let i=0;i<arr.length;i++){
+    const x=arr.length>1?i/(arr.length-1)*W:0;
+    const y=H-4-(arr[i]/100)*(H-8);
+    i?ctx.lineTo(x,y):ctx.moveTo(x,y);
+  }
+  ctx.stroke();
+}
 
 /* ---- tabs ---- */
 const SECTIONS=['detector','camera','wardrive','settings'];
@@ -351,9 +379,15 @@ async function tick(){
     $('#freq').innerHTML=fmt(s.freq,1)+'<small> Hz</small>';
     $('#duty').innerHTML=fmt(s.duty*100,0)+'<small> %</small>';
     $('#conf').style.width=Math.round((s.confidence||0)*100)+'%';
-    $('#fix').innerHTML=s.fix?'<span class="ok">LOCK</span>':'<span class="no">no fix</span>';
-    $('#sats').textContent=s.sats??'--';
-    $('#pos').textContent=s.fix?(fmt(s.lat,6)+', '+fmt(s.lon,6)):'no fix';
+    // GPS health: chars prove the module is wired + talking
+    if(!(s.gpsChars>0)) $('#fix').innerHTML='<span class="no">NO DATA</span>';
+    else if(s.fix)      $('#fix').innerHTML='<span class="ok">FIX</span>';
+    else                $('#fix').innerHTML='<span style="color:var(--amber)">acquiring</span>';
+    $('#sats').innerHTML=(s.sats??'--')+' <small style="color:var(--mut)">hdop '+fmt(s.hdop,1)+'</small>';
+    $('#pos').textContent=s.fix?(fmt(s.lat,6)+', '+fmt(s.lon,6)):(s.gpsChars>0?'searching...':'no gps');
+    // live signal scope
+    drawWave(s.wave||[]);
+    $('#sigMeta').textContent='amp '+(s.amp??0)+'  |  '+fmt(s.freq,1)+' Hz';
     $('#fps').innerHTML=fmt(s.fps,0)+'<small> fps</small>';
     $('#sd').innerHTML=s.sd?'<span class="ok">ready</span>':'<span class="no">no card</span>';
     $('#count').textContent=s.logged??0;
