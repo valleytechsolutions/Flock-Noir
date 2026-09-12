@@ -28,6 +28,8 @@ struct DetectionResult {
   int      goodCycles = 0;
   uint16_t levelPP    = 0;   // peak-to-peak level in window
   float    blobFrac   = 0.0f;// mean blob fraction while "on"
+  float    periodScore= 0.0f;// fraction of edge intervals near the target period
+  float    jitter     = 1.0f;// spread of the matching intervals (0 = metronome)
 };
 
 class Detector {

@@ -1,0 +1,15 @@
+[Unit]
+Description=Flock Noir - IR/ALPR camera-flash detector (Raspberry Pi)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=__PI__
+Environment=PYTHONUNBUFFERED=1
+ExecStart=__PI__/venv/bin/python -m flocknoir.main
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target

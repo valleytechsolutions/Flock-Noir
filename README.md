@@ -108,6 +108,18 @@ approach. For the full background on how ALPR IR works and how both detectors op
 
 ---
 
+## Hardware targets
+
+Flock Noir runs on two boards. They share one web UI (`web/index.html`), one API, and
+the same log formats, so features stay in lockstep.
+
+| Target | Camera | Notes |
+|---|---|---|
+| **Seeed XIAO ESP32-S3 Sense** (`firmware/FlockNoir/`) | OV2640; the stock lens has an IR-cut filter | Tiny and cheap; Arduino C++. Prebuilt image in `binaries/`. Setup below. |
+| **Raspberry Pi** with Wi-Fi + CSI camera (`pi/`) | Camera Module **NoIR** v2/v3: no IR-cut filter, up to 90 fps | Python; runs as a systemd service with a field hotspot. Reference build: Pi Zero 2 W. See **[pi/README.md](pi/README.md)**. |
+
+The rest of this page describes the XIAO build; the Pi has its own guide.
+
 ## Hardware
 
 A complete, linked bill of materials, wiring diagram, and assembly guide is in
@@ -233,19 +245,32 @@ A TV remote (IR, at a different rate) is a handy way to confirm the pipeline is 
 |-- binaries/
 |   \-- FlockNoir-merged-0x0.bin prebuilt image, flash at 0x0
 |-- docs/                        logo and screenshots
-\-- firmware/
-    \-- FlockNoir/               the Arduino sketch
-        |-- FlockNoir.ino        main loop: camera, detector, GPS, CSV, buzzer, wardriver, recorder, web
-        |-- config.h             all pins and tunables
-        |-- detector.h/.cpp      time-domain IR pattern detector
-        |-- buzzer.h/.cpp        non-blocking RTTTL player and NVS tone library
-        |-- wardriver.h/.cpp     async Wi-Fi scan to WiGLE CSV
-        |-- recorder.h/.cpp      MJPEG-AVI writer with optional WAV
-        |-- irsensor.h/.cpp      analog 850nm photodiode detector (1 kHz ADC task)
-        |-- web_ui.h             the web app, served from flash
-        |-- logo.h               embedded logo (generated)
-        |-- assets/logo.png      source logo
-        \-- tools/logo2header.py logo to logo.h converter
+|-- web/
+|   |-- index.html               the shared web UI (single source of truth for both targets)
+|   \-- logo.png
+|-- tools/
+|   \-- html2header.py           web/index.html -> firmware/FlockNoir/web_ui.h
+|-- firmware/
+|   \-- FlockNoir/               the XIAO ESP32-S3 Arduino sketch
+|       |-- FlockNoir.ino        main loop: camera, detector, GPS, CSV, buzzer, wardriver, recorder, web
+|       |-- config.h             all pins and tunables
+|       |-- detector.h/.cpp      time-domain IR pattern detector
+|       |-- buzzer.h/.cpp        non-blocking RTTTL player and NVS tone library
+|       |-- wardriver.h/.cpp     async Wi-Fi scan to WiGLE CSV
+|       |-- recorder.h/.cpp      MJPEG-AVI writer with optional WAV
+|       |-- irsensor.h/.cpp      analog 850nm photodiode detector (1 kHz ADC task)
+|       |-- web_ui.h             the web UI embedded in flash (generated from web/index.html)
+|       |-- logo.h               embedded logo (generated)
+|       |-- assets/logo.png      source logo
+|       \-- tools/logo2header.py logo to logo.h converter
+\-- pi/                          the Raspberry Pi target (Python)
+    |-- README.md                install, wiring, and usage for the Pi
+    |-- install.sh               one-shot installer: deps, data dir, systemd service
+    |-- netmode.sh               field hotspot / home Wi-Fi mode switch
+    |-- flocknoir.service        systemd unit
+    |-- config.py                all settings
+    \-- flocknoir/               camera, detector, buzzer, gps, wardriver, recorder,
+                                 irsensor, logger, web, main
 ```
 
 ---

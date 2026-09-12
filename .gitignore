@@ -9,6 +9,11 @@ build_out/
 *.zip
 *.tar.gz
 
+# Raspberry Pi target: virtualenv + Python bytecode
+pi/venv/
+__pycache__/
+*.pyc
+
 # OS cruft
 .DS_Store
 Thumbs.db

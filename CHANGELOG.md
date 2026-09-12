@@ -4,6 +4,20 @@ All notable changes to the Flock Noir. This project is **experimental**;
 version numbers are milestones, not stability guarantees.
 
 ## v0.3
+- **Raspberry Pi hardware target** (`pi/`): a Python port for any Pi with Wi-Fi and a CSI
+  camera (reference: Pi Zero 2 W + Camera Module NoIR v2, which has no IR-cut filter and
+  runs up to 90 fps). Same web UI and API, same log formats; picamera2 capture with fixed
+  exposure, hardware H.264 recording, gpiozero RTTTL buzzer, serial NMEA GPS, `iw`-based
+  wardriving, optional MCP3008 IR photodiode path, systemd service, and an nmcli hotspot
+  with captive portal. One-shot `pi/install.sh`.
+- **Shared web UI**: `web/index.html` is now the single source of truth; the XIAO header
+  `web_ui.h` is generated from it by `tools/html2header.py`.
+- **Detector noise fix (both targets)**: the loosened "approximate" mode could fire on pure
+  sensor noise. Simulation across 37-90 fps showed two metrics that separate a real strobe
+  from noise at every frame rate: **duty** (strobe ~0.2, noise ~0.5) and **interval
+  jitter** (strobe <= 0.09, noise >= 0.19). The decision now gates on `DUTY_MAX` and a new
+  `JITTER_MAX`, with `PERIOD_SCORE_MIN` kept loose because a 20 ms pulse can fall between
+  frames at ~40 fps. Verified: 147/147 synthetic cases classified correctly.
 - **Live camera view** in the web UI (grayscale NIR) via on-demand JPEG frames, with the
   brand logo as a corner watermark.
 - **Recording** to SD: MJPEG **AVI** video, optional onboard-mic **WAV** sidecar (PDM mic

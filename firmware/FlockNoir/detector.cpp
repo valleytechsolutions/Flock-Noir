@@ -69,6 +69,8 @@ DetectionResult Detector::analyze() {
   int      totalRises  = 0;
   double   onTimeSum   = 0;    // total "on" microseconds (completed pulses)
   double   spanSum     = 0;    // total time covered by completed cycles
+  double   tolSum      = 0;    // sum / sum-of-squares of matching intervals (ms)
+  double   tolSumSq    = 0;    //   -> jitter without storing them
   double   blobFracSum = 0;    // mean blob fraction during "on"
   int      blobSamples = 0;
 
@@ -86,7 +88,9 @@ DetectionResult Detector::analyze() {
         totalRises++;
         if (fabs(interval_ms - TARGET_PERIOD_MS) <= PERIOD_TOL_MS) {
           cyclesInTol++;
-          spanSum += (t - lastRise_us);
+          spanSum  += (t - lastRise_us);
+          tolSum   += interval_ms;
+          tolSumSq += interval_ms * interval_ms;
         }
       }
       lastRise_us = t;
@@ -142,10 +146,26 @@ DetectionResult Detector::analyze() {
   r.confidence = periodScore * 0.4f + dutyScore * 0.3f
                + cycleScore * 0.2f + compactScore * 0.1f;
 
-  // Loose ("approximate") decision: enough matching cycles, a little regularity,
-  // and a low confidence bar. This intentionally allows false positives.
+  // Regularity of the matching intervals (std/mean). A real strobe is a
+  // metronome; noise that lands in the tolerance band is ragged.
+  r.periodScore = periodScore;
+  if (cyclesInTol >= 2) {
+    double mean = tolSum / cyclesInTol;
+    double var  = tolSumSq / cyclesInTol - mean * mean;
+    if (var < 0) var = 0;
+    r.jitter = (mean > 0) ? (float)(sqrt(var) / mean) : 1.0f;
+  } else {
+    r.jitter = 1.0f;
+  }
+
+  // Decision. Duty and jitter are the gates that actually separate a real strobe
+  // from sensor noise at any frame rate: a strobe is short-on (~20%) and
+  // metronome-regular; noise reads ~50% duty and ragged intervals. periodScore
+  // is kept loose because a 20 ms pulse can fall between frames at ~40 fps.
   r.detected = (cyclesInTol >= MIN_GOOD_CYCLES) &&
                (periodScore >= PERIOD_SCORE_MIN) &&
+               (r.dutyCycle <= DUTY_MAX) &&
+               (r.jitter <= JITTER_MAX) &&
                (r.confidence >= DETECT_CONFIDENCE);
 
   _last = r;

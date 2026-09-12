@@ -134,16 +134,21 @@
 #define TARGET_FREQ_HZ     10.0f
 #define TARGET_PERIOD_MS   100.0f
 #define PERIOD_TOL_MS      45.0f     // (strict ~18) accept ~6.5..18 Hz between edges
-#define DUTY_MIN           0.03f     // (strict ~0.10) accept a very wide duty band...
-#define DUTY_MAX           0.70f     // (strict ~0.35)
+#define DUTY_MIN           0.03f     // (strict ~0.10)
+#define DUTY_MAX           0.40f     // a real strobe is short-on (~0.2); random noise reads ~0.5
 // How many matching cycles inside the window before we call it.
 #define MIN_GOOD_CYCLES    3         // (strict ~8) fewer = fires on a brief match
 // Confidence needed to raise/log/beep an alert (0..1).
 #define DETECT_CONFIDENCE  0.30f     // (strict ~0.6) lower = more (and looser) hits
 // Minimum fraction of rising-edge intervals that must land near the target
-// period. A light regularity gate so random camera noise alone does not beep
-// non-stop; raise toward ~0.5 for stricter, lower toward ~0.1 for looser.
-#define PERIOD_SCORE_MIN   0.18f
+// period. Kept loose because at ~40 fps a 20 ms pulse can fall between frames
+// and a real strobe only scores ~0.6 here.
+#define PERIOD_SCORE_MIN   0.35f
+// Regularity gate: spread of the matching intervals (std/mean). A real strobe
+// repeats at the same interval (measures <= 0.09); sensor noise that happens
+// to land in the tolerance band is ragged (>= 0.19). This is what stops the
+// detector from beeping on noise with no camera present.
+#define JITTER_MAX         0.15f
 // Reject only if the bright area fills MORE than this fraction of the frame
 // (that is whole-frame flicker, not a compact source). Loose here = permissive.
 #define BLOB_MAX_FRACTION  0.90f     // (strict ~0.35)

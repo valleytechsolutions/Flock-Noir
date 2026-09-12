@@ -76,6 +76,13 @@ duty, and confidence, so real hits can be told from noise after the fact.
   illuminators, and mains-lit scenes can all flicker. The duty check (~20 %), the compactness
   gate (camera), and the multi-interval requirement (photodiode) cut these down, and the logged
   confidence lets you filter later. **Always visually confirm a camera.**
+- **What actually separates a strobe from noise.** Simulating the camera path from 37 to 90
+  fps showed that "fraction of intervals near 100 ms" is a weak test at low frame rates (a
+  20 ms pulse sometimes falls between frames, so even a real strobe only scores ~0.6). Two
+  metrics separate cleanly at every frame rate: **duty cycle** (a strobe is short-on, ~0.2;
+  symmetric noise crossing the threshold reads ~0.5) and **interval jitter** (a strobe repeats
+  like a metronome, <= 0.09; noise that lands in the tolerance band is ragged, >= 0.19). Both
+  detectors gate on these. If you retune, keep those two gates.
 
 ## References
 

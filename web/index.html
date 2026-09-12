@@ -1,13 +1,3 @@
-// =============================================================================
-//  Flock Noir  -  web_ui.h   (GENERATED from web/index.html - do not hand edit)
-//  Single-page UI. Tabs: Detector / Camera / Wardrive / Settings.
-//  Polls /api/status ~2x/sec. Logo served UNALTERED at /logo.png.
-//  Regenerate with:  python tools/html2header.py
-// =============================================================================
-#pragma once
-#include <Arduino.h>
-
-static const char INDEX_HTML[] PROGMEM = R"HTMLPAGE(
 <!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Flock Noir</title>
@@ -511,4 +501,3 @@ $('#save').onclick=async()=>{
   toast('saved to device');renumber();
 };
 </script></body></html>
-)HTMLPAGE";
