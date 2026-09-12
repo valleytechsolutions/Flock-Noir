@@ -381,7 +381,7 @@ setInterval(tick,500); tick();
 
 /* ---- settings ---- */
 const PRESETS={
- 'Power Rangers':'PwrRngr:d=16,o=6,b=200:c,e,g,c7,g7,c7,g,e,c,e,g',
+ 'Power Rangers':'MMPR:d=16,o=7,b=400:c#8,p,c#8,p,b,c#8,p,e8,p,c#8',
  'Nokia':'Nokia:d=4,o=5,b=225:8e6,8d6,f#,g#,8c#6,8b,d,e,8b,8a,c#,e,2a',
  'Mario':'Mario:d=4,o=5,b=100:16e6,16e6,32p,8e6,16c6,8e6,8g6,8p,8g',
  'Alarm':'Alarm:d=8,o=6,b=180:c,p,c,p,c7,p,c7,p,g,p,g',

@@ -9,11 +9,11 @@ Buzzer buzzer;
 static Preferences prefs;
 
 // ---- default tone library ---------------------------------------------------
-// NOTE: the "Power Rangers communicator" default is a best-effort approximation
-// of that rising chirp -- tweak it in the Settings tab until it sounds right.
+// Bump BUZZER_DEFAULTS_VERSION (config.h) to force existing devices to re-seed
+// these defaults on next boot (otherwise the old set stays in NVS).
 struct DefTone { const char *name; const char *rtttl; };
 static const DefTone kDefaults[] = {
-  { "Power Rangers", "PwrRngr:d=16,o=6,b=200:c,e,g,c7,g7,c7,g,e,c,e,g" },
+  { "Power Rangers", "MMPR:d=16,o=7,b=400:c#8,p,c#8,p,b,c#8,p,e8,p,c#8" },
   { "ALPR Alarm",    "Alarm:d=8,o=6,b=180:c,p,c,p,c7,p,c7,p,g,p,g" },
   { "Triple Chirp",  "Chirp:d=32,o=7,b=200:c,p,c,p,c" },
 };
@@ -54,9 +54,10 @@ void Buzzer::begin() {
 
   prefs.begin("flockbuz", true);                 // read-only probe
   int cnt = prefs.getInt("cnt", -1);
+  int ver = prefs.getInt("ver", 0);
   prefs.end();
 
-  if (cnt < 0) {                                 // first boot -> seed + save
+  if (cnt < 0 || ver != BUZZER_DEFAULTS_VERSION) {   // first boot / new defaults
     seedDefaults();
     save();
   } else {
@@ -89,6 +90,7 @@ void Buzzer::setTone(int i, const String &nm, const String &rt) {
 
 void Buzzer::save() {
   prefs.begin("flockbuz", false);
+  prefs.putInt("ver", BUZZER_DEFAULTS_VERSION);
   prefs.putBool("en", _enabled);
   prefs.putInt("ai", _alertIdx);
   prefs.putInt("cnt", _count);

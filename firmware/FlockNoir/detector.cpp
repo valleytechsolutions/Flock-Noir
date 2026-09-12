@@ -124,7 +124,10 @@ DetectionResult Detector::analyze() {
   r.confidence = periodScore * 0.4f + dutyScore * 0.3f
                + cycleScore * 0.2f + compactScore * 0.1f;
 
+  // Loose ("approximate") decision: enough matching cycles, a little regularity,
+  // and a low confidence bar. This intentionally allows false positives.
   r.detected = (cyclesInTol >= MIN_GOOD_CYCLES) &&
+               (periodScore >= PERIOD_SCORE_MIN) &&
                (r.confidence >= DETECT_CONFIDENCE);
 
   _last = r;

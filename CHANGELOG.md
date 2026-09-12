@@ -17,6 +17,14 @@ version numbers are milestones, not stability guarantees.
 - Boot jingle set to the **Super Mario Bros.** theme; separate configurable alert tone.
 - Branded, dark, four-tab web UI (Detector / Camera / Wardrive / Settings) with the
   embedded, unaltered logo.
+- **Approximate ("high sensitivity") detection:** loosened thresholds and raised fixed
+  exposure/gain so a weak IR signal (for example through a stock IR-cut lens) still
+  triggers. False positives are expected; the confidence and duty are logged so you can
+  filter and verify. A light regularity gate keeps random noise from beeping non-stop.
+- **GPS wiring profiles** in `config.h`: select the Seeed L76K "GNSS for XIAO" sandwich
+  board or a discrete external module (for example an ATGM336H, or an LC29H at 115200).
+- Default "Power Rangers" alert tone is now a Mighty Morphin communicator RTTTL; built-in
+  tone defaults re-seed automatically when their version changes.
 
 ## v0.2
 - Branded web UI, `@valleytechsolutions` identity.

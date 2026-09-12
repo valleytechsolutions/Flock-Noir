@@ -13,16 +13,35 @@
 #define WEB_PORT       80
 
 // -----------------------------------------------------------------------------
-//  GPS  (Quectel LC29H -> ESP32-S3 hardware UART)
-//  The LC29H speaks NMEA at 115200 baud by default.
-//  Pick two FREE header pins. GPS TX -> ESP RX, GPS RX -> ESP TX.
-//  D6=GPIO43 (TX0) and D7=GPIO44 (RX0) are free on the S3 because the USB-CDC
-//  port carries the serial console. Change if you wire elsewhere.
+//  GPS  (NMEA GNSS over a hardware UART)
+//  Pick your GPS wiring PROFILE below. All modules talk NMEA over UART; the
+//  profiles just set the pins and default baud.  GPS TX -> ESP RX, GPS RX -> ESP TX.
+//
+//    XIAO_L76K : the Seeed "L76K GNSS for XIAO" board sandwiched on the XIAO.
+//                Uses the standard XIAO UART pins D7/D6 (GPIO44/43) at 9600.
+//                (Confirmed from Seeed's example: RXPin=D7, TXPin=D6, 9600.)
+//    EXTERNAL  : a discrete module wired to the header pins yourself
+//                (e.g. an ATGM336H, default 9600 baud; a Quectel LC29H is 115200).
+//
+//  D6/D7 are free on the S3 because the USB-CDC port carries the serial console.
 // -----------------------------------------------------------------------------
-#define GPS_UART_NUM   1          // use Serial1 (UART1)
-#define GPS_RX_PIN     44         // ESP receives here  <- LC29H TX
-#define GPS_TX_PIN     43         // ESP transmits here -> LC29H RX
-#define GPS_BAUD       115200
+#define GPS_PROFILE_XIAO_L76K  1
+#define GPS_PROFILE_EXTERNAL   2
+
+#define GPS_PROFILE   GPS_PROFILE_XIAO_L76K   // <-- SET YOUR GPS HERE
+
+#define GPS_UART_NUM   1          // Serial1 (UART1)
+#if   GPS_PROFILE == GPS_PROFILE_XIAO_L76K
+  #define GPS_RX_PIN   44         // D7  <- L76K TX
+  #define GPS_TX_PIN   43         // D6  -> L76K RX
+  #define GPS_BAUD     9600
+#elif GPS_PROFILE == GPS_PROFILE_EXTERNAL
+  #define GPS_RX_PIN   44         // D7  <- module TX   (change to your wiring)
+  #define GPS_TX_PIN   43         // D6  -> module RX   (change to your wiring)
+  #define GPS_BAUD     9600       // ATGM336H = 9600; set 115200 for a Quectel LC29H
+#else
+  #error "Set GPS_PROFILE to GPS_PROFILE_XIAO_L76K or GPS_PROFILE_EXTERNAL"
+#endif
 
 // -----------------------------------------------------------------------------
 //  Buzzer  (PASSIVE piezo -- required for RTTTL melodies; active buzzers
@@ -38,6 +57,9 @@
 #define BUZZER_LEDC_CHANNEL 5        // keep away from camera's channel 0
 #define BUZZER_MAX_TONES   5         // configurable tone slots
 #define BUZZER_STARTUP_BEEP 1        // 1 = chirp once on boot to prove wiring
+// Bump this when the built-in default tones change, to re-seed them into NVS on
+// devices that already saved the old set. (Resets tones to defaults.)
+#define BUZZER_DEFAULTS_VERSION 2
 
 // -----------------------------------------------------------------------------
 //  microSD  (SPI, on the XIAO Sense expansion board)
@@ -85,39 +107,52 @@
 #define CAM_FRAMESIZE      FRAMESIZE_QQVGA
 #define CAM_FB_COUNT       2
 
-// Manual exposure/gain (AEC/AGC/AWB are DISABLED in code). Lower exposure keeps
-// the frame dark so a bright IR emitter stands out as a saturated blob.
-#define CAM_AEC_VALUE      120       // 0..1200 raw exposure; tune in field
-#define CAM_AGC_GAIN       0         // 0..30 fixed gain; keep low
-#define CAM_BRIGHTNESS     -1        // -2..2
+// Manual exposure/gain (AEC/AGC/AWB are DISABLED in code).
+// NOTE: with a STOCK lens the IR-cut filter blocks most 850 nm light, so the
+// signal is weak. We run a HIGHER fixed exposure and gain to pull that weak IR
+// up out of the noise. If you have the IR-filter-removed lens you can LOWER
+// these (e.g. AEC ~150, GAIN ~2) for a cleaner, higher-contrast blob.
+#define CAM_AEC_VALUE      500       // 0..1200 raw exposure (was 120)
+#define CAM_AGC_GAIN       14        // 0..30 fixed gain (was 0) -- amplify weak IR
+#define CAM_BRIGHTNESS     0         // -2..2
 #define CAM_PIXEL_STRIDE   1         // scan every Nth pixel (1=all, 2=faster)
 
 // -----------------------------------------------------------------------------
-//  Detection algorithm tunables
+//  Detection SENSITIVITY
+//  These defaults are deliberately LOOSE ("approximate" mode): they fire when a
+//  signal is *close* to the ALPR IR pattern, so you WILL get false positives --
+//  that is the trade for not missing a real one. The confidence and duty are
+//  written to the CSV so you can filter/verify later. To make it STRICTER again
+//  (fewer false positives), move each value back toward the "(strict)" note.
+//    ALWAYS visually confirm an actual camera before trusting a hit.
 // -----------------------------------------------------------------------------
-// A pixel at/above this 8-bit value counts as part of the (saturated) IR blob.
-#define SAT_THRESHOLD      230
-// Minimum peak-to-peak brightness swing in the tracked level for a "signal".
-#define MIN_AMPLITUDE      25
-// Target flash characteristics.
+// A pixel at/above this 8-bit value counts toward the IR "blob" (compactness).
+#define SAT_THRESHOLD      120       // (strict ~230) lower = counts dimmer spots
+// Minimum peak-to-peak brightness swing before we bother analyzing.
+#define MIN_AMPLITUDE      6         // (strict ~25) lower = catch faint flicker
+// Target flash characteristics (Flock-style ~10 Hz, ~20% duty).
 #define TARGET_FREQ_HZ     10.0f
 #define TARGET_PERIOD_MS   100.0f
-#define PERIOD_TOL_MS      18.0f     // accept 82..118 ms between rising edges
-#define DUTY_MIN           0.10f     // accept 10%..35% duty
-#define DUTY_MAX           0.35f
-// How many good cycles inside the window before we declare a detection.
-#define MIN_GOOD_CYCLES    8
-// Confidence needed to raise/log an alert (0..1).
-#define DETECT_CONFIDENCE  0.6f
-// Blob must be reasonably compact: reject if blob covers more than this
-// fraction of scanned pixels (that is whole-frame flicker, not a camera).
-#define BLOB_MAX_FRACTION  0.35f
+#define PERIOD_TOL_MS      45.0f     // (strict ~18) accept ~6.5..18 Hz between edges
+#define DUTY_MIN           0.03f     // (strict ~0.10) accept a very wide duty band...
+#define DUTY_MAX           0.70f     // (strict ~0.35)
+// How many matching cycles inside the window before we call it.
+#define MIN_GOOD_CYCLES    3         // (strict ~8) fewer = fires on a brief match
+// Confidence needed to raise/log/beep an alert (0..1).
+#define DETECT_CONFIDENCE  0.30f     // (strict ~0.6) lower = more (and looser) hits
+// Minimum fraction of rising-edge intervals that must land near the target
+// period. A light regularity gate so random camera noise alone does not beep
+// non-stop; raise toward ~0.5 for stricter, lower toward ~0.1 for looser.
+#define PERIOD_SCORE_MIN   0.18f
+// Reject only if the bright area fills MORE than this fraction of the frame
+// (that is whole-frame flicker, not a compact source). Loose here = permissive.
+#define BLOB_MAX_FRACTION  0.90f     // (strict ~0.35)
 
 // Sliding analysis window.
 #define SAMPLE_BUFFER      256       // ~5-8 s of frames depending on fps
-#define ANALYZE_EVERY_MS   400       // run the analyzer this often
+#define ANALYZE_EVERY_MS   300       // run the analyzer this often
 
-// Re-arm: suppress duplicate log rows for the same source for this long.
+// Re-arm: suppress duplicate log rows / beeps for the same source for this long.
 #define ALERT_HOLDOFF_MS   4000
 
 // -----------------------------------------------------------------------------
