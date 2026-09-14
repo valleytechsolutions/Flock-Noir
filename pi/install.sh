@@ -30,16 +30,22 @@ if [ ! -x "$PI_DIR/venv/bin/python" ]; then
   python3 -m venv --system-site-packages "$PI_DIR/venv"
 fi
 "$PI_DIR/venv/bin/pip" install --quiet --upgrade pip
-"$PI_DIR/venv/bin/pip" install --quiet flask pynmea2 pyserial
+"$PI_DIR/venv/bin/pip" install --quiet pynmea2
 
 echo "== data directory =="
 mkdir -p "$DATA_DIR"/{logs,wardrive,videos}
 
 echo "== systemd service =="
 sed "s|__PI__|$PI_DIR|g" "$PI_DIR/flocknoir.service" > /etc/systemd/system/flocknoir.service
-systemctl daemon-reload
-systemctl enable flocknoir >/dev/null
-systemctl restart flocknoir
+if [ -d /run/systemd/system ]; then
+  systemctl daemon-reload
+  systemctl enable flocknoir >/dev/null
+  systemctl restart flocknoir
+else
+  # image build / chroot: systemd is not running - enable only, it starts on first boot
+  systemctl enable flocknoir >/dev/null 2>&1 || true
+  echo "(no running systemd: service enabled, will start on boot)"
+fi
 
 echo
 echo "Installed. The service is running:  systemctl status flocknoir"

@@ -3,7 +3,7 @@
 #  Flock Noir - Raspberry Pi network mode (NetworkManager / nmcli)
 #
 #    sudo ./netmode.sh hotspot   field mode: Pi hosts Wi-Fi "Flock Noir" at 192.168.4.1
-#    sudo ./netmode.sh client    home mode:  back on your saved Wi-Fi (for updates)
+#    sudo ./netmode.sh client [SSID] [password]   home mode: join your Wi-Fi (for updates)
 #
 #  A Pi Zero 2 W has ONE radio, so hotspot and home Wi-Fi are exclusive.
 #  SSH still works over the hotspot:  ssh <user>@192.168.4.1
@@ -37,8 +37,15 @@ case "${1:-}" in
     nmcli con modify "$CON" autoconnect no >/dev/null 2>&1 || true
     rm -f "$DNSCONF"
     nmcli device wifi rescan >/dev/null 2>&1 || true
-    echo "Hotspot off. NetworkManager will reconnect to your saved home Wi-Fi."
+    if [ -n "${2:-}" ]; then
+      sleep 2
+      nmcli device wifi connect "$2" ${3:+password "$3"} ifname "$IFACE"
+      echo "Hotspot off. Joined '$2'."
+    else
+      echo "Hotspot off. NetworkManager will reconnect to your saved home Wi-Fi."
+      echo "(To join a network:  $0 client \"SSID\" \"password\")"
+    fi
     ;;
   *)
-    echo "usage: $0 hotspot|client"; exit 1 ;;
+    echo "usage: $0 hotspot | client [SSID] [password]"; exit 1 ;;
 esac

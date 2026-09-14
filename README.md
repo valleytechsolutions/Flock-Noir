@@ -116,7 +116,7 @@ the same log formats, so features stay in lockstep.
 | Target | Camera | Notes |
 |---|---|---|
 | **Seeed XIAO ESP32-S3 Sense** (`firmware/FlockNoir/`) | OV2640; the stock lens has an IR-cut filter | Tiny and cheap; Arduino C++. Prebuilt image in `binaries/`. Setup below. |
-| **Raspberry Pi** with Wi-Fi + CSI camera (`pi/`) | Camera Module **NoIR** v2/v3: no IR-cut filter, up to 90 fps | Python; runs as a systemd service with a field hotspot. Reference build: Pi Zero 2 W. See **[pi/README.md](pi/README.md)**. |
+| **Raspberry Pi** with Wi-Fi + CSI camera (`pi/`) | Camera Module **NoIR** v2/v3: no IR-cut filter, up to 90 fps | Python; runs as a systemd service with a field hotspot. Reference build: Pi Zero 2 W. A **ready-to-flash image** is on the [Releases](https://github.com/valleytechsolutions/Flock-Noir/releases) page. See **[pi/README.md](pi/README.md)**. |
 
 The rest of this page describes the XIAO build; the Pi has its own guide.
 

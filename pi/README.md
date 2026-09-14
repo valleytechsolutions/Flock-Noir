@@ -38,6 +38,23 @@ build is a **Pi Zero 2 W + Camera Module NoIR v2**.*
 
 ## Install
 
+### Option A: flash the ready-made image (easiest)
+
+1. Download `flocknoir-pi.img.xz` from the
+   [Releases page](https://github.com/valleytechsolutions/Flock-Noir/releases).
+2. Open **Raspberry Pi Imager**, choose your Pi, then **Use custom** and pick the file.
+   (You can skip Imager's customization; the image is already set up.)
+3. Flash, insert the card with the camera ribbon attached, and power up.
+4. On your phone, join the Wi-Fi **Flock Noir** (password **flocknoir**). The Flock Noir
+   page opens automatically; if not, browse to `http://192.168.4.1`.
+
+The image boots straight into field (hotspot) mode with SSH on, SPI and the UART already
+enabled, and a default login of **flock / flocknoir**. Change that password after the
+first boot (`ssh flock@192.168.4.1`, then `passwd`). Details on what is inside the image
+and how to put the Pi on your home Wi-Fi for updates are in [image/README.md](image/README.md).
+
+### Option B: install on an existing Raspberry Pi OS
+
 1. **Flash Raspberry Pi OS** (Bookworm or newer, Lite recommended) with Raspberry Pi
    Imager. In Imager's settings enable **SSH** and enter your **home Wi-Fi** so you can
    reach the Pi for setup. Insert the card and boot with the camera ribbon attached.

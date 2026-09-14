@@ -1,0 +1,62 @@
+# Builds a ready-to-flash Raspberry Pi image with Flock Noir pre-installed.
+#
+#   - Manual:  Actions -> "Build Raspberry Pi image" -> Run workflow
+#              (image appears as a workflow artifact)
+#   - Release: push a tag like v0.3.0 -> the image is built and attached to
+#              the GitHub Release for that tag
+#
+# Base: official Raspberry Pi OS Lite (64-bit). The repo is copied into the image
+# at /opt/flocknoir and pi/image/provision.sh runs inside it under ARM emulation.
+name: Build Raspberry Pi image
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image (Raspberry Pi OS Lite arm64 + Flock Noir)
+        id: build
+        uses: pguyot/arm-runner-action@v2
+        with:
+          base_image: raspios_lite_arm64:latest
+          image_additional_mb: 2560
+          cpu: cortex-a53
+          shell: /bin/bash
+          copy_repository_path: /opt/flocknoir
+          optimize_image: true
+          commands: |
+            bash /opt/flocknoir/pi/image/provision.sh
+
+      - name: Compress and checksum
+        run: |
+          mv "${{ steps.build.outputs.image }}" flocknoir-pi.img
+          xz -T0 -6 flocknoir-pi.img
+          sha256sum flocknoir-pi.img.xz > flocknoir-pi.img.xz.sha256
+          ls -la flocknoir-pi.img.xz*
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flocknoir-pi-image
+          path: |
+            flocknoir-pi.img.xz
+            flocknoir-pi.img.xz.sha256
+
+      - name: Attach to the GitHub Release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            flocknoir-pi.img.xz
+            flocknoir-pi.img.xz.sha256
+          generate_release_notes: true

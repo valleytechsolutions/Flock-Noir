@@ -10,6 +10,10 @@ version numbers are milestones, not stability guarantees.
   exposure, hardware H.264 recording, gpiozero RTTTL buzzer, serial NMEA GPS, `iw`-based
   wardriving, optional MCP3008 IR photodiode path, systemd service, and an nmcli hotspot
   with captive portal. One-shot `pi/install.sh`.
+- **Ready-to-flash Raspberry Pi image**: a GitHub Actions workflow builds the official
+  Raspberry Pi OS Lite (64-bit) with Flock Noir pre-installed, the hotspot pre-configured,
+  SSH on, and SPI/UART enabled, and attaches `flocknoir-pi.img.xz` to each tagged release
+  (or run it manually from the Actions tab).
 - **Shared web UI**: `web/index.html` is now the single source of truth; the XIAO header
   `web_ui.h` is generated from it by `tools/html2header.py`.
 - **Detector noise fix (both targets)**: the loosened "approximate" mode could fire on pure
