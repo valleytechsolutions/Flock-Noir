@@ -23,7 +23,7 @@ apt-get update
 apt-get install -y --no-install-recommends \
   python3 python3-venv python3-pip \
   python3-picamera2 python3-numpy python3-pil python3-gpiozero python3-serial \
-  iw ffmpeg git
+  python3-flask iw ffmpeg openssl git
 
 echo "== python venv (system site packages for picamera2/gpiozero/numpy) =="
 if [ ! -x "$PI_DIR/venv/bin/python" ]; then
