@@ -55,9 +55,12 @@ build is a **Pi Zero 2 W + Camera Module NoIR v2**.*
    This installs the apt/pip dependencies, creates `/var/lib/flocknoir` for logs and
    recordings, and installs + starts the `flocknoir` systemd service (so it runs on
    every boot).
-4. **Check it**: `systemctl status flocknoir` and `journalctl -u flocknoir -f`. While the
+4. **Enable the interfaces you use** (one time, then reboot): `sudo raspi-config` ->
+   Interface Options -> **SPI: Yes** (for the MCP3008 IR receivers) and **Serial Port:**
+   login shell No, hardware Yes (for a UART GPS). The camera needs nothing on Bookworm.
+5. **Check it**: `systemctl status flocknoir` and `journalctl -u flocknoir -f`. While the
    Pi is still on your home Wi-Fi you can open the UI at `http://<pi-ip>/`.
-5. **Turn on the field hotspot** (this is how you use it in the car):
+6. **Turn on the field hotspot** (this is how you use it in the car):
    ```bash
    sudo ./pi/netmode.sh hotspot
    ```
@@ -70,17 +73,94 @@ Wi-Fi are exclusive. SSH keeps working over the hotspot: `ssh <user>@192.168.4.1
 
 ## Wiring
 
+All connections use the Pi's 40-pin header. Numbers below are **physical pin numbers**
+(the position on the header), with the BCM GPIO name in parentheses. Looking at the Pi
+with the header at the top-right and the SD card slot facing away from you, pin 1 is the
+top-left pin (nearest the SD card) and pins count 1-2 across, 3-4, and so on down.
+
 ```
-Passive piezo buzzer:   (+) -> GPIO18 (physical pin 12)     (-) -> GND (pin 6/9/14)
-GPS module (UART):      GPS TX -> GPIO15 RXD (pin 10)      GPS RX -> GPIO14 TXD (pin 8)
-                        VCC -> 3V3 (pin 1)                  GND -> GND
-                        (then: sudo raspi-config -> Interface Options -> Serial Port:
-                         login shell NO, serial hardware YES; or set GPS_PORT to a USB port)
-MCP3008 (optional):     SPI0 (pins 19/21/23/24), photodiode front end into CH0
-                        (enable SPI: sudo raspi-config -> Interface Options -> SPI)
+        3V3  (1)  (2)  5V
+  SDA GPIO2  (3)  (4)  5V
+  SCL GPIO3  (5)  (6)  GND
+      GPIO4  (7)  (8)  GPIO14 TXD  ---> GPS RX
+        GND  (9)  (10) GPIO15 RXD  <--- GPS TX
+     GPIO17 (11)  (12) GPIO18 PWM  ---> buzzer (+)
+     GPIO27 (13)  (14) GND
+     GPIO22 (15)  (16) GPIO23
+        3V3 (17)  (18) GPIO24
+ MOSI GPIO10 (19) (20) GND
+ MISO GPIO9  (21) (22) GPIO25
+ SCLK GPIO11 (23) (24) GPIO8 CE0   ---> MCP3008 CS
+        GND (25)  (26) GPIO7 CE1
+       ...  (27-40 unused by Flock Noir)
 ```
-The photodiode front-end circuit is in [HARDWARE.md](../HARDWARE.md) (transimpedance
-BPW34 + MCP6002, or a simple phototransistor).
+
+### Buzzer (passive piezo, 2-pin)
+
+```
+buzzer (+)  ------>  pin 12  (GPIO18, hardware PWM)
+buzzer (-)  ------>  pin 6   (GND)          (optional ~100 ohm in series on the + leg)
+```
+Passive, not active: active buzzers make one fixed pitch and cannot play the RTTTL
+tunes. If the legs are equal length, either orientation is fine. You will hear the boot
+jingle on power-up when it is wired correctly. Change `BUZZER_PIN` in `config.py` to use
+another GPIO.
+
+### GPS (NMEA over the Pi UART)
+
+```
+GPS TX   ------>  pin 10  (GPIO15 RXD)
+GPS RX   ------>  pin 8   (GPIO14 TXD)
+GPS VCC  ------>  pin 1   (3V3)
+GPS GND  ------>  pin 9   (GND)
+```
+Then free the UART from the login console: `sudo raspi-config` -> Interface Options ->
+Serial Port -> login shell **No**, serial hardware **Yes**, reboot. The device is
+`/dev/serial0` (the default `GPS_PORT`). A USB GPS needs no wiring: set `GPS_PORT` to
+`/dev/ttyUSB0` or `/dev/ttyACM0`. Default baud is 9600 (ATGM336H, L76K); an LC29H is 115200.
+
+### IR receivers (photodiodes) via an MCP3008 ADC
+
+The Pi has no analog input, so the IR photodiode path needs an ADC. The **MCP3008**
+(8-channel, 10-bit, SPI, about 3 dollars) is the standard choice and gpiozero supports
+it directly. Wire the chip to SPI0:
+
+```
+MCP3008 pin  ->  Pi header
+  16 VDD     ->  pin 1   (3V3)
+  15 VREF    ->  pin 17  (3V3)
+  14 AGND    ->  pin 25  (GND)
+  13 CLK     ->  pin 23  (GPIO11 SCLK)
+  12 DOUT    ->  pin 21  (GPIO9  MISO)
+  11 DIN     ->  pin 19  (GPIO10 MOSI)
+  10 CS/SHDN ->  pin 24  (GPIO8  CE0)
+   9 DGND    ->  pin 20  (GND)
+   1 CH0     <-  IR sensor front-end output   (IR_ADC_CHANNEL = 0)
+   2 CH1     <-  (second sensor, e.g. rear)
+   3 CH2     <-  (third sensor, e.g. roof)
+```
+Enable SPI once: `sudo raspi-config` -> Interface Options -> SPI -> Yes.
+
+Each IR receiver is one of these two front ends (same circuits as the XIAO, see
+[HARDWARE.md](../HARDWARE.md)), with its output going to an MCP3008 channel instead of
+an ESP32 pin:
+
+```
+Option A - transimpedance amp (best):        Option B - phototransistor (simplest):
+
+   BPW34 photodiode + MCP6002 op-amp,           3V3 --- collector [phototransistor]
+   4.7 M feedback, 10 pF, from 3V3.                     emitter ---+---> MCP3008 CHn
+   Output (~0.2 V dark, toward 3.3 V on IR)             [10k]     |
+   ---> MCP3008 CHn                                     GND ------+
+```
+Put an IR-pass filter (mylar, or a strip of exposed and developed film negative) over
+each diode to block visible light and cut false positives.
+
+**Placement:** point one receiver forward through the windshield and, if you fit more,
+one to the rear and one on the roof, the way the Noflock project does for coverage at
+speed. Keep the camera lens and the diodes unobstructed. Flip the **IR photodiode**
+toggle on in the Detector tab once wired; the firmware reads `IR_ADC_CHANNEL` (CH0) and
+multi-channel reading is on the roadmap.
 
 ## Configuration
 

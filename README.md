@@ -300,6 +300,9 @@ Thanks to:
 - **Noflock / Flock-IR-Detection** ([github.com/Noflock/Flock-IR-Detection](https://github.com/Noflock/Flock-IR-Detection)).
   The photodiode circuit and the edge/period IR-detection algorithm in Flock Noir follow this
   project's proven approach for passively detecting Flock IR pulses at speed.
+- **justcallmekoko, ESP32 Marauder** ([github.com/justcallmekoko/ESP32Marauder](https://github.com/justcallmekoko/ESP32Marauder)).
+  The reference open-source ESP32 wireless research toolkit; its approachable, hackable
+  design for wardriving and radio recon shaped how Flock Noir's wireless side is built.
 - **Midwest Gadgets (@hamspiced), Piglet wardriver** ([github.com/hamspiced/piglet](https://github.com/hamspiced/piglet),
   [midwestgadgets.org](https://www.midwestgadgets.org/product-page/piglet)). The Wi-Fi
   wardriving side of this project, WiGLE-format logging on the XIAO with a web UI, is

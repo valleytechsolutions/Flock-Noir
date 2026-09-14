@@ -13,7 +13,7 @@ always visually confirm an actual camera).
 
 ---
 
-##  Two things that trip everyone up
+## Two things that trip everyone up
 
 1. **The buzzer must be a *passive* piezo.** Active buzzers have a built-in oscillator and
    play only one fixed pitch - they **cannot** play the RTTTL tunes. Get a *passive* one.
@@ -135,7 +135,7 @@ Wi-Fi on). Set `IR_SENSOR_PIN` in `config.h` to move it. Enable the sensor from 
 ### Option A - transimpedance amplifier (best, what Noflock uses)
 
 ```
-                    4.7 MΩ
+                    4.7 Mohm
               +-----/\/\/-----+
               |               |
               |     10 pF     |
@@ -151,7 +151,7 @@ Wi-Fi on). Set `IR_SENSOR_PIN` in `config.h` to move it. Enable the sensor from 
              3V3
 ```
 - Photodiode: **BPW34** (or BPW34NA, IR-enhanced), cathode to the op-amp input.
-- Op-amp: **MCP6002** (dual, cheap, rail-to-rail). Feedback **4.7 MΩ** + **10 pF**.
+- Op-amp: **MCP6002** (dual, cheap, rail-to-rail). Feedback **4.7 Mohm** + **10 pF**.
 - Output sits near ~0.2 V in the dark and swings toward 3.3 V on a strong IR pulse.
 - Put an **IR-pass filter** over the diode (mylar, or a strip of exposed/developed film
   negative) to block visible light and cut false positives.
@@ -177,3 +177,22 @@ on the roadmap.
 *Credit: the photodiode circuit and the edge/period detection approach follow
 [Noflock/Flock-IR-Detection](https://github.com/Noflock/Flock-IR-Detection) and the broader
 Flock-IR-detection community.*
+
+---
+
+## Raspberry Pi wiring (the `pi/` target)
+
+The Raspberry Pi build uses the same sensors on the Pi's 40-pin header:
+
+| Signal | Pi header pin | BCM |
+|--------|---------------|-----|
+| Buzzer (+) | 12 | GPIO18 (PWM) |
+| Buzzer (-) | 6 | GND |
+| GPS TX -> Pi | 10 | GPIO15 RXD |
+| GPS RX <- Pi | 8 | GPIO14 TXD |
+| MCP3008 CLK / DOUT / DIN / CS | 23 / 21 / 19 / 24 | GPIO11 / 9 / 10 / 8 (SPI0) |
+| IR receiver front-end out | MCP3008 CH0 (CH1, CH2 for more) | - |
+
+The Pi has no analog input, so the IR photodiode front ends above feed an **MCP3008**
+ADC on SPI. The full pin-by-pin guide, header diagram, and placement notes are in
+**[pi/README.md](pi/README.md#wiring)**.
