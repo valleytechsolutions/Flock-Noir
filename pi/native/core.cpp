@@ -86,7 +86,7 @@ FN_EXPORT const char *fn_assessment(int alpr,int tier,int ir,int camera) {
 }
 FN_EXPORT int fn_decode_survey(const uint8_t *address,const char *ssid,char *out,size_t cap) {
   if(!address || !ssid || strlen(ssid)>128)return -1;
-  Wifi w;w.valid=w.beacon=true;snprintf(w.ssid,sizeof(w.ssid),"%s",ssid);
+  Wifi w;w.valid=w.beacon=true;snprintf(w.ssid,sizeof(w.ssid),"%.32s",ssid);
   Match match=wifiMatch(w,address,0,false);
   if(match.tier)match.method=contains(match.method,"ssid")?"survey_ssid":"survey_oui";
   return output("{\"valid\":true,\"name\":"+quote(ssid)+",\"drone\":"+droneJson(Drone())+
