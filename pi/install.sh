@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
 #  Flock Noir - Raspberry Pi installer
-#  Tested target: Raspberry Pi Zero 2 W + Camera Module NoIR v2, Raspberry Pi OS
-#  (Bookworm or newer, Lite is fine). Works on any Pi with Wi-Fi + a CSI camera.
+#  Reference target: Raspberry Pi Zero 2 W + Camera Module NoIR v2, Raspberry Pi OS
+#  (Bookworm or newer, Lite is fine). Physical hardware validation is pending.
 #
 #    sudo ./pi/install.sh          install deps, data dir, systemd service
 #    sudo ./pi/netmode.sh hotspot  (afterwards) turn on the field Wi-Fi hotspot

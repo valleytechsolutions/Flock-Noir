@@ -1,7 +1,7 @@
 # =============================================================================
 #  Flock Noir - Raspberry Pi target - config.py
-#  All settings for the Pi build in one place. Works with any Raspberry Pi that
-#  has Wi-Fi and a CSI camera (tested target: Pi Zero 2 W + Camera Module NoIR v2).
+#  All settings for the Pi build in one place.
+#  Reference target: Pi Zero 2 W + Camera Module NoIR v2; hardware validation pending.
 # =============================================================================
 import os
 

@@ -28,7 +28,7 @@ SPI and radio operation still require physical validation on your hardware.*
 
 | Part | Notes |
 |------|-------|
-| Raspberry Pi with Wi-Fi + CSI connector | Zero 2 W (reference), 3, 4, 5, Zero W all work. |
+| Raspberry Pi Zero 2 W | Reference for this arm64 image. Other Pi models have not been validated; the original Zero W cannot run this 64-bit image. |
 | Raspberry Pi Camera Module **NoIR** (v2 or v3) | The "NoIR" is the one without the IR-cut filter. Standard v2/v3 also works but sees far less IR. |
 | microSD card (8 GB+) with Raspberry Pi OS | **Bookworm (2023-10) or newer**, Lite is fine. Older Bullseye needs the legacy camera stack and is not supported here. |
 | Passive piezo buzzer (optional) | Signal to **GPIO18**, other leg to **GND**. Passive, not active. |
@@ -219,8 +219,8 @@ XIAO), `wardrive/wigle_*.csv`, `videos/rec_*.mp4` (or `.h264` if ffmpeg is absen
 
 - **Camera "NOT AVAILABLE"** in the log: reseat the ribbon (contacts toward the board),
   run `rpicam-hello --list-cameras`, and make sure `python3-picamera2` installed.
-- **Low fps**: lower `CAM_FPS` or `CAM_SIZE` in `config.py`; a Zero 2 W is happiest around
-  60 fps at 640x480.
+- **Low fps**: lower `CAM_FPS` or `CAM_SIZE` in `config.py`. The 60 fps setting is a
+  target; measure actual frame rate and ADC gaps with your capture/recording load.
 - **No sound**: passive buzzer on GPIO18? Test a tone from the Settings tab.
 - **GPS "NO DATA"**: nothing arriving on `GPS_PORT`; check wiring/baud and that the serial
   login shell is disabled (`raspi-config`).
