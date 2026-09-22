@@ -51,6 +51,10 @@ capture, and drone Remote ID. OPT101 pulse timing runs alongside wardriving;
 events record their source and supporting evidence. The original UI design and
 four tabs remain. See [features, limits and operation](docs/RADIO.md).
 
+**XIAO v0.4.1** fixes Bluetooth startup and camera/radio contention, with a
+hardware-verified flash and USB health checks. Download the board-specific
+binary and checksum from [Releases](https://github.com/valleytechsolutions/Flock-Noir/releases).
+
 Thanks to **[Colonel Panic](https://colonelpanic.tech/)** and
 **[OUI Spy Unified Blue](https://github.com/colonelpanichacks/oui-spy-unified-blue)**
 for the research and feature inspiration. Please support his work. Full
@@ -128,8 +132,11 @@ sensor is wired. It builds on research from [Noflock/Flock-IR-Detection](https:/
 
 ## Hardware targets
 
-Flock Noir runs on two boards. They share one web UI (`web/index.html`), one API, and
-the same log formats, so features stay in lockstep.
+Flock Noir has XIAO and Raspberry Pi targets that share the web UI
+(`web/index.html`). The **0.4 radio scanning and OPT101 pulse-validation update is
+currently XIAO ESP32-S3 Sense only**. The Pi retains its existing camera and
+MCP3008 detector implementation; it does not implement the new radio features.
+There is currently **no ESP32-CAM build**. The XIAO binary cannot run on ESP32-CAM.
 
 | Target | Camera | Notes |
 |---|---|---|
@@ -184,6 +191,8 @@ python -m platformio device monitor --port COM44 --baud 115200
 ```
 
 Replace `COM44` with your actual port (`/dev/ttyACM0` on many Linux systems).
+On Windows, if upload output fails with `UnicodeEncodeError`, set
+`$env:PYTHONUTF8='1'` and `$env:PYTHONIOENCODING='utf-8'` in PowerShell and retry.
 TinyGPSPlus 1.0.3 is the existing GPS parser; its pinned version and the external
 GPS profile preserve ATGM336H wiring and 9600 baud. The remaining radio, camera,
 SD and web APIs ship with the pinned ESP32 core. A 6 MB application partition

@@ -6,6 +6,7 @@
 #include <SD.h>
 #include <Preferences.h>
 #include <esp_wifi.h>
+#include <esp32-hal-alloc-ble-mem.h> // retain BLE memory before Arduino startup
 #include <nimble/nimble_port.h>
 #include <nimble/nimble_port_freertos.h>
 #include <host/ble_hs.h>

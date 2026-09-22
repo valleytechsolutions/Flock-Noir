@@ -2,6 +2,7 @@
 #include "pulse_detector.h"
 #include <Preferences.h>
 #include <esp_timer.h>
+#include <esp32-hal-periman.h>
 
 IrSensor irSensor;
 static Preferences irPrefs;
@@ -10,6 +11,13 @@ void IrSensor::begin() {
     _enabled = irPrefs.getBool("en", IR_DEFAULT_ENABLED != 0); irPrefs.end();
   }
   analogReadResolution(12);
+  // The Arduino core attaches an ADC channel on its first read. Per-pin
+  // attenuation only applies after that attachment has succeeded.
+  analogRead(IR_SENSOR_PIN);
+  if (perimanGetPinBusType(IR_SENSOR_PIN) != ESP32_BUS_TYPE_ADC_ONESHOT) {
+    Serial.println("[IR] ADC initialization failed");
+    return;
+  }
   analogSetPinAttenuation(IR_SENSOR_PIN, ADC_11db);
   if (!_events) _events = xQueueCreate(8, sizeof(IrResult));
   if (!_events) Serial.println("[IR] event queue allocation failed");

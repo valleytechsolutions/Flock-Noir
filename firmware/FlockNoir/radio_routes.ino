@@ -53,7 +53,8 @@ void serviceRadioSerial() {
     if(c=='\r')continue;
     if(c=='\n') {
       if(command=="CMD:STATUS")output=radio.json()+"\n";
-      else if(command=="CMD:VERSION")output="{\"firmware\":\"Flock Noir\",\"version\":\"0.4\"}\n";
+      else if(command=="CMD:HEALTH")output=statusJson()+"\n";
+      else if(command=="CMD:VERSION")output="{\"firmware\":\"Flock Noir\",\"version\":\"" FLOCK_NOIR_VERSION "\"}\n";
       else if(command=="CMD:DUMP_LIVE")output=radio.rowsJson()+"\n";
       else if(command=="CMD:CLEAR_LIVE") {radio.clearLive();output="{\"ok\":true}\n";}
       else output="{\"error\":\"Unknown command; hold BOOT 1.5s for dashboard\"}\n";

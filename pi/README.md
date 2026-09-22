@@ -4,8 +4,9 @@
 
 # Flock Noir on Raspberry Pi
 
-*The Raspberry Pi hardware target. Same web UI, same features, same logs as the XIAO
-ESP32-S3 build. Works on any Raspberry Pi with Wi-Fi and a CSI camera; the reference
+*The Raspberry Pi hardware target shares the XIAO web UI, with its existing camera
+and MCP3008 detectors. The XIAO 0.4 radio features and new OPT101 pulse validator
+have not been ported to Pi. Works on any Raspberry Pi with Wi-Fi and a CSI camera; the reference
 build is a **Pi Zero 2 W + Camera Module NoIR v2**.*
 
 </div>

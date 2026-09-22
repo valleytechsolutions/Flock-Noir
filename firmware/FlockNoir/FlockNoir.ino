@@ -121,6 +121,13 @@ bool initCamera() {
     Serial.printf("[CAM] init failed 0x%x\n", err);
     return false;
   }
+  // DMA directly into the S3's PSRAM instead of copying DMA chunks on the
+  // WiFi core. Apply before manual controls: this call reinitializes the sensor.
+  err = esp_camera_set_psram_mode(true);
+  if (err != ESP_OK) {
+    Serial.printf("[CAM] PSRAM DMA initialization failed 0x%x\n", err);
+    return false;
+  }
 
   // CRITICAL: freeze exposure/gain/white-balance so the pulse is not
   // auto-corrected away. This is the biggest lever for detection quality.
@@ -248,7 +255,7 @@ void handleCaptive() {
   server.send(302, "text/plain", "");
 }
 
-void handleStatus() {
+String statusJson() {
   DetectionResult d = detector.last();
   char iso[24]; isoUtc(iso, sizeof(iso));
 
@@ -259,6 +266,8 @@ void handleStatus() {
   j += ",\"duty\":"      + String(d.dutyCycle, 3);
   j += ",\"confidence\":"+ String(d.confidence, 3);
   j += ",\"fps\":"       + String(g_fps, 1);
+  j += ",\"cameraReady\":" + String(g_cameraReady ? "true":"false");
+  j += ",\"version\":\"" FLOCK_NOIR_VERSION "\"";
   j += ",\"sd\":"        + String(g_sdReady ? "true":"false");
   j += ",\"logged\":"    + String(g_logged);
   j += ",\"fix\":"       + String(freshFix() ? "true":"false");
@@ -339,8 +348,10 @@ void handleStatus() {
          ",\"duty\":" + String(ra.duty,3) + ",\"conf\":" + String(ra.conf,3) + ",\"evidence\":" + jsonQuote(ra.evidence) + "}";
   }
   j += "]}";
-  server.send(200, "application/json", j);
+  return j;
 }
+
+void handleStatus() { server.send(200, "application/json", statusJson()); }
 
 void handleLog() {
   if (!g_sdReady) { server.send(404, "text/plain", "no SD card"); return; }
@@ -496,8 +507,9 @@ void handleTest() {
 void setup() {
   Serial.begin(115200);
   delay(300);
-  Serial.println("\n=== Flock Noir v0.4 ===");
+  Serial.println("\n=== Flock Noir v" FLOCK_NOIR_VERSION " ===");
 
+  if (!GPSserial.setRxBufferSize(2048)) Serial.println("[GPS] RX buffer allocation failed");
   GPSserial.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
   if (!GPSserial) Serial.println("[GPS] UART initialization failed");
 
@@ -571,7 +583,7 @@ void loop() {
   }
 
   // 2) grab + scan one camera frame
-  camera_fb_t *fb = g_cameraReady ? esp_camera_fb_get() : nullptr;
+  camera_fb_t *fb = g_cameraReady && esp_camera_available_frames() ? esp_camera_fb_get() : nullptr;
   if (fb) {
     uint16_t level, blobPx, cx, cy;
     scanFrame(fb, level, blobPx, cx, cy);
@@ -634,4 +646,5 @@ void loop() {
 
   // 6) serve web clients (cheap, non-blocking)
   server.handleClient();
+  vTaskDelay(1); // yield while the next camera frame is being acquired
 }

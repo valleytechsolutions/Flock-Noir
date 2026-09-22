@@ -5,6 +5,8 @@
 // =============================================================================
 #pragma once
 
+#define FLOCK_NOIR_VERSION "0.4.1"
+
 // -----------------------------------------------------------------------------
 //  WiFi SoftAP  (device makes its own network -- no internet needed in field)
 // -----------------------------------------------------------------------------
@@ -105,6 +107,8 @@
 // Frame size: FRAMESIZE_QQVGA (160x120) is a good speed/detail balance.
 // FRAMESIZE_96X96 pushes fps higher if you need more temporal resolution.
 #define CAM_FRAMESIZE      FRAMESIZE_QQVGA
+// Continuous frames need direct PSRAM DMA (enabled in initCamera) to coexist
+// with the radios. A single buffer halves the camera's temporal sampling rate.
 #define CAM_FB_COUNT       2
 
 // Manual exposure/gain (AEC/AGC/AWB are DISABLED in code).
@@ -203,7 +207,7 @@ static_assert(IR_SENSOR_PIN != BUZZER_PIN && IR_SENSOR_PIN != GPS_RX_PIN && IR_S
 #define WARDRIVE_DEDUP_RING   512            // recent BSSIDs kept to skip dupes
 #define WARDRIVE_DIR          "/wardrive"    // WiGLE CSVs live here
 #define WARDRIVE_LOG_NEEDS_FIX 1             // only log APs when GPS has a fix
-#define WIGLE_APP_RELEASE     "0.2"
+#define WIGLE_APP_RELEASE     FLOCK_NOIR_VERSION
 #define WIGLE_DEVICE_NAME     "FlockNoir"
 
 // -----------------------------------------------------------------------------

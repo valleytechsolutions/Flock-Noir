@@ -38,3 +38,25 @@ jobs:
             .pio/build/xiao_esp32s3_sense/firmware.bin
             .pio/build/xiao_esp32s3_sense/bootloader.bin
             .pio/build/xiao_esp32s3_sense/partitions.bin
+  release-xiao:
+    if: startsWith(github.ref, 'refs/tags/xiao-v')
+    needs: xiao
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify the packaged firmware checksum
+        working-directory: binaries
+        run: sha256sum -c FlockNoir-merged-0x0.bin.sha256
+      - name: Publish the XIAO Sense release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" --verify-tag \
+            --title "Flock Noir ${RELEASE_TAG#xiao-} - XIAO ESP32-S3 Sense" \
+            --notes-file binaries/BUILD.md \
+            binaries/FlockNoir-merged-0x0.bin \
+            binaries/FlockNoir-merged-0x0.bin.sha256 \
+            binaries/BUILD.md

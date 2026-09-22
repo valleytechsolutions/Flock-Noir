@@ -149,8 +149,10 @@ boot, not Unix time. Missing JSON coordinates are `null`. The observer's GPS
 position must not be interpreted as the target's location. Drone positions are
 decoded broadcasts, separately labeled, and can be spoofed.
 
-USB commands at 115200 baud: `CMD:STATUS`, `CMD:VERSION`, `CMD:DUMP_LIVE`,
-`CMD:CLEAR_LIVE`. Clear Live affects RAM only. Output uses a bounded write per
+USB commands at 115200 baud: `CMD:STATUS`, `CMD:HEALTH`, `CMD:VERSION`, `CMD:DUMP_LIVE`,
+`CMD:CLEAR_LIVE`. `CMD:HEALTH` returns the same camera, GPS, SD and ADC diagnostics
+as `/api/status`, for checking a flashed board without changing WiFi networks.
+Clear Live affects RAM only. Output uses a bounded write per
 foreground iteration. Historical SD files are available through the dashboard.
 
 ## Validation before relying on a build
