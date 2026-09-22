@@ -186,7 +186,7 @@ bool Recorder::start(bool withAudio) {
   if (!_idxOff || !_idxSize) { free(_idxOff); free(_idxSize); _idxOff = _idxSize = nullptr; return false; }
 
   char base[40];
-  snprintf(base, sizeof(base), "%s/rec_%lu", REC_DIR, (unsigned long)millis());
+  snprintf(base, sizeof(base), "%s/rec_%08lx", REC_DIR, (unsigned long)esp_random());
   _videoPath = String(base) + ".avi";
   _audioPath = String(base) + ".wav";
 

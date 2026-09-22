@@ -42,8 +42,8 @@ The catch is **time resolution**. To confirm a 20 ms pulse you want to sample we
    and auto-exposure fights you. The camera can flag "there is ~10 Hz flicker over there" and
    tell you *where* it is, but it cannot prove the exact pulse shape.
 2. **Analog photodiode - the right tool.** An 850 nm photodiode sampled at ~1 kHz captures the
-   20 ms / 80 ms waveform cleanly and unambiguously. Community projects (see references) show
-   this reliably detects Flock captures from a stopped car up to highway speed.
+   20 ms / 80 ms waveform with much finer timing resolution than the camera.
+   Detection range and performance at speed need measurement on the actual build.
 
 ## Flock Noir's two-detector design
 
@@ -55,21 +55,25 @@ the brightest blob -> time-domain edge/period/duty scoring -> confidence. Good f
 this stream so you can see whether the sensor responds at all (a flat line while aimed at a
 camera means the IR-cut lens is blocking 850 nm).
 
-**IR photodiode path** (`irsensor.cpp`): a dedicated 1 kHz ADC task with an exponential-moving-
-average ambient baseline, AC (pulse) extraction, hysteresis edge detection with a refractory
-gap, and validation that rising-edge intervals fall in the **5-15 Hz** band for several
-consecutive pulses before asserting a detection. This mirrors the proven
-[Noflock/Flock-IR-Detection](https://github.com/Noflock/Flock-IR-Detection) algorithm and is
-the high-accuracy path. See [HARDWARE.md](HARDWARE.md) for the circuit.
+**OPT101 path** (XIAO 0.4): a dedicated ADC1 task targets 1 kHz and reports the
+actual sample rate. It removes a slow ambient baseline, measures rising/falling
+edges, and requires four consecutive cycles in the configured 8-12 Hz profile,
+10-30% duty, 8-35 ms pulse width and no more than 15% period change. Invalid
+cycles, clipping and sample gaps over 5 ms reset the train. Noise-adaptive
+thresholds supplement the fixed threshold floor. These are initial tuning
+values, not an ALPR identification standard.
 
-Every hit is written to the CSV with a **source** column (`camera` or `ir`) plus its frequency,
-duty, and confidence, so real hits can be told from noise after the fact.
+Radio observations and optical events are independently logged. A nearby radio
+candidate can add temporal evidence; neither an OUI nor pulse timing proves a
+Flock camera. See [the radio/evidence guide](docs/RADIO.md) for operating modes,
+signatures, capture limits and hardware validation. The Pi detector currently
+retains its older implementation.
 
 ## Honing it in - practical tuning
 
 - **Remove the IR-cut filter** (or use a de-filtered lens). Nothing else matters as much for
   the camera path.
-- **Match the band, not just 10 Hz.** We accept ~5-15 Hz because real-world rate varies and the
+- **Tune against measured sources.** The XIAO OPT101 default is 8-12 Hz; the
   motion-triggered burst is short; requiring several valid intervals in that band rejects
   random flicker.
 - **Expect and filter false positives.** Sunlight off a modulated surface, other IR

@@ -43,7 +43,7 @@ always visually confirm an actual camera).
 | **OV2640 lens with IR-cut filter removed** (or a "no-IR-filter" OV2640 camera) | hobby electronics suppliers | Big boost to IR detection range/reliability. You can also carefully remove the tiny filter from a spare lens. |
 | **LiPo battery (3.7 V)** | [Seeed batteries](https://www.seeedstudio.com/battery-c-262.html) | Portable, cable-free operation; the XIAO has an onboard charger. |
 | **3D-printed case** | your own / community | Protect it for field/car use. |
-| **850 nm photodiode + 850 nm band-pass filter** | electronics suppliers | For the planned high-accuracy timing front-end (see README roadmap). |
+| **OPT101 analog module** | [TI specifications](https://www.ti.com/product/OPT101) / electronics suppliers | Dedicated pulse timing input on D1; use a 3.3 V-compatible breakout. |
 
 > **Cost:** the required electronics come to roughly **$25-40** depending on the GPS module.
 
@@ -63,7 +63,8 @@ header pins. None of these overlap, so the camera + SD keep working.
 | **GPS RX** (<- module **TX**) | **44** | **D7** | `config.h` |
 | **GPS TX** (-> module **RX**) | **43** | **D6** | `config.h` |
 | **Buzzer signal** | **1** | **D0** | `config.h` |
-| *free for future photodiode* | 2,3,4,5,6 | D1-D5 | - |
+| **OPT101 OUT** | **2** | **D1** | ADC1, works alongside WiFi |
+| Free header pins | 3,4,5,6 | D2-D5 | Check boot-strapping before attaching loads |
 
 ---
 
@@ -119,64 +120,69 @@ On power-up the board plays a **boot jingle**, which confirms the buzzer works.
 
 ---
 
-## IR photodiode sensor (high-accuracy detection)
+## OPT101 photodiode module (current reference build)
 
-The camera samples at ~40 fps, which is too slow to prove a 20 ms pulse. An analog **850 nm
-photodiode** sampled at ~1 kHz captures the exact 10 Hz / 20 % pulse cleanly. This is the
-method proven by the open-source **[Noflock/Flock-IR-Detection](https://github.com/Noflock/Flock-IR-Detection)**
-project (reliable at highway speed), and Flock Noir implements the same approach. The
-firmware samples an ADC pin on a dedicated 1 kHz task, tracks an ambient baseline, and
-validates rising-edge intervals against the 5-15 Hz band.
+![OPT101 and GPS wiring](docs/wiring-opt101.svg)
 
-**ADC pin:** the photodiode signal goes to **D1 / GPIO2** (an ADC1 channel, which works with
-Wi-Fi on). Set `IR_SENSOR_PIN` in `config.h` to move it. Enable the sensor from the
-**Detector** tab (IR photodiode toggle) once it is wired.
+Disconnect USB and battery power before connecting wires. This build uses an
+**OPT101 analog breakout** and an **OV2640 with its IR-cut filter removed**.
+OPT101 already contains the photodiode and amplifier; no BPW34 or MCP6002 is
+required. It responds to visible and near-IR light, not exclusively 850 nm.
 
-### Option A - transimpedance amplifier (best, what Noflock uses)
+| OPT101 breakout terminal | XIAO ESP32-S3 Sense |
+|---|---|
+| VCC / VS / V+ | **3V3** |
+| GND | **GND** |
+| OUT / VOUT / analog output | **D1 / GPIO2 (ADC1_CH1)** |
 
-```
-                    4.7 Mohm
-              +-----/\/\/-----+
-              |               |
-              |     10 pF     |
-              +----||---------+
-              |               |
- photodiode   |   |\          |
- (BPW34,      |   | \         |
-  cathode +)  +---|- \        |
-      |           |   >-------+------> D1 / GPIO2 (ADC)
-      |       +---|+ /
-     GND      |   | /
-              |   |/  MCP6002 (rail-to-rail, 3.3V)
-             3V3
-```
-- Photodiode: **BPW34** (or BPW34NA, IR-enhanced), cathode to the op-amp input.
-- Op-amp: **MCP6002** (dual, cheap, rail-to-rail). Feedback **4.7 Mohm** + **10 pF**.
-- Output sits near ~0.2 V in the dark and swings toward 3.3 V on a strong IR pulse.
-- Put an **IR-pass filter** over the diode (mylar, or a strip of exposed/developed film
-  negative) to block visible light and cut false positives.
+Terminal order varies by breakout. Confirm labels and its supply requirements;
+this connection is for a breakout that operates from 3.3 V. A board marked for
+5 V only needs its circuit checked before use. Do not put a 5 V output into the
+XIAO ADC. Start with short wires; put supply decoupling at the sensor if the
+breakout does not include it. TI recommends 0.01-0.1 uF supply bypassing.
 
-### Option B - phototransistor (simplest, no op-amp)
+### Bare OPT101 chip, standard single-supply circuit
 
-```
- 3V3 ---- collector [phototransistor] emitter ----+---- D1 / GPIO2 (ADC)
-                                                   |
-                                                 [10k] load resistor
-                                                   |
-                                                  GND
-```
-- More IR light -> more current -> higher voltage at D1. Cheaper and fewer parts, but less
-  sensitive and slower than the transimpedance design.
+These are **IC pin numbers viewed from above**, not breakout terminal positions.
+Use the package's pin-1 marker and the [TI datasheet](https://www.ti.com/lit/ds/symlink/opt101.pdf).
 
-### Multi-sensor
+| IC pin | Connection |
+|---|---|
+| 1, VS | 3V3 |
+| 3, -V | GND |
+| 8, Common | GND |
+| 4, feedback | Join to pin 5 to use the internal 1 Mohm resistor |
+| 5, output | D1 / GPIO2 |
+| 2, negative input | Leave unconnected in this standard circuit |
+| 6 and 7 | No connection |
 
-Noflock uses three sensors (rear + roof) for coverage at speed. The firmware currently reads
-one ADC pin; adding more channels (D2/GPIO3, D3/GPIO4 - also ADC1) is a small change and is
-on the roadmap.
+### Bring-up
 
-*Credit: the photodiode circuit and the edge/period detection approach follow
-[Noflock/Flock-IR-Detection](https://github.com/Noflock/Flock-IR-Detection) and the broader
-Flock-IR-detection community.*
+1. Power on and connect to **Flock Noir**, password **flocknoir**. Open `192.168.4.1`.
+2. Enable **IR photodiode sensor** in Detector. Watch the raw count and waveform
+   as you cover/uncover the OPT101. The firmware cannot prove a sensor is
+   connected simply by reading an ADC baseline.
+3. Check for headroom in actual outdoor lighting. OPT101 is not rail-to-rail;
+   its amplifier may saturate well below the ADC maximum. Lower incoming light
+   or use an appropriate optical filter if the waveform flattens under bright light.
+4. A TV remote is useful for checking response, but is not a valid ALPR test
+   source. Verify a known 10 Hz, 20 ms light pulse and reject other frequencies.
+5. Enable WiGLE and radio scanning, then verify the sampling-rate and drop/gap
+   diagnostics while logging. See [detection and radio validation](docs/RADIO.md).
+
+The supplied camera defaults now use lower fixed exposure/gain (150 / 2) for
+an IR-cut-free OV2640. Tune those under real lighting. Point the camera and
+OPT101 at the same area to make cross-sensor evidence more useful. A suitable
+850 nm bandpass filter can reduce visible-light interference; verify the actual
+filter transmission specification. No optics can establish camera identity.
+
+### GPIO conflicts to avoid
+
+The OUI Spy reference board is not the Sense peripheral layout. Keep the passive
+buzzer on **D0/GPIO1**. **GPIO21 is microSD CS**, not an available NeoPixel pin.
+GPS stays on **D7/GPIO44 RX** and **D6/GPIO43 TX**. For your ATGM336H, the
+firmware uses the external UART profile at **9600 baud**. Keep its existing power
+wiring if working; bare GNSS modules and breakouts can have different supply ratings.
 
 ---
 

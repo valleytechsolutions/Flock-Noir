@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4 - OPT101 and unified radio integration
+
+- XIAO-specific passive WiFi/BLE candidates, watchlists, target RSSI, Remote ID and SD captures.
+- Dashboard/field channel modes with BOOT recovery; IR continues while wardriving.
+- Pulse width/duty/regularity validation, latched events, noise and sampling diagnostics.
+- Independent IR logging, corrected camera frame size, stale GPS rejection and unique log names.
+- Original UI design preserved; radio controls live in Wardrive.
+- PlatformIO build, merged image/checksum, host regression tests and updated wiring/credits.
+- Hardware accuracy/coexistence validation remains required; Pi radio integration is not included.
+
 All notable changes to the Flock Noir. This project is **experimental**;
 version numbers are milestones, not stability guarantees.
 

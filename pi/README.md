@@ -215,3 +215,10 @@ XIAO), `wardrive/wigle_*.csv`, `videos/rec_*.mp4` (or `.h264` if ffmpeg is absen
 - **GPS "NO DATA"**: nothing arriving on `GPS_PORT`; check wiring/baud and that the serial
   login shell is disabled (`raspi-config`).
 - **Service logs**: `journalctl -u flocknoir -f`.
+
+## Version scope
+
+The 0.4 unified radio implementation targets the XIAO ESP32-S3 Sense. The Pi
+keeps its existing camera/MCP3008 detector and hides the XIAO radio controls.
+For OPT101, use 3.3 V-compatible module power, common ground and OUT to MCP3008
+CH0. The XIAO D1 connection is not a Pi GPIO wiring instruction.

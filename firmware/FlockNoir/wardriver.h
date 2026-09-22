@@ -18,6 +18,8 @@ public:
   //   whenStr : "YYYY-MM-DD HH:MM:SS" for the WiGLE FirstSeen column
   void update(bool haveFix, double lat, double lon, double alt, const char *whenStr);
 
+  void observePassive(const uint8_t *mac, const char *ssid, int channel, int rssi, bool privacy,
+                      bool fix, double lat, double lon, double alt, const char *when);
   void setEnabled(bool e);              // persists to NVS
   bool enabled()     const { return _enabled; }
   bool scanning()    const { return _scanning; }

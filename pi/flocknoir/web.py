@@ -19,6 +19,10 @@ def create_app(ctx):
     def root():
         return send_from_directory(C.WEB_DIR, "index.html")
 
+    @app.get("/api/radio")
+    def radio_capabilities():
+        return jsonify(supported=False)
+
     @app.get("/logo.png")
     def logo():
         return send_from_directory(C.WEB_DIR, "logo.png")

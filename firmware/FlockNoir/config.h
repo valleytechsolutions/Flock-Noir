@@ -28,7 +28,7 @@
 #define GPS_PROFILE_XIAO_L76K  1
 #define GPS_PROFILE_EXTERNAL   2
 
-#define GPS_PROFILE   GPS_PROFILE_XIAO_L76K   // <-- SET YOUR GPS HERE
+#define GPS_PROFILE   GPS_PROFILE_EXTERNAL    // <-- SET YOUR GPS HERE
 
 #define GPS_UART_NUM   1          // Serial1 (UART1)
 #if   GPS_PROFILE == GPS_PROFILE_XIAO_L76K
@@ -70,10 +70,10 @@
 //  Ref: wiki.seeedstudio.com/xiao_esp32s3_sense_filesystem  ->  SD.begin(21)
 // -----------------------------------------------------------------------------
 #define SD_CS_PIN      21
-// If you ever wire the SPI bus to non-default pins, set them here (-1 = default):
-#define SD_SCK_PIN     -1
-#define SD_MISO_PIN    -1
-#define SD_MOSI_PIN    -1
+// Explicit Sense SPI pin map:
+#define SD_SCK_PIN     7
+#define SD_MISO_PIN    8
+#define SD_MOSI_PIN    9
 
 // -----------------------------------------------------------------------------
 //  Camera pins  -  Seeed XIAO ESP32-S3 Sense (OV2640)
@@ -108,12 +108,10 @@
 #define CAM_FB_COUNT       2
 
 // Manual exposure/gain (AEC/AGC/AWB are DISABLED in code).
-// NOTE: with a STOCK lens the IR-cut filter blocks most 850 nm light, so the
-// signal is weak. We run a HIGHER fixed exposure and gain to pull that weak IR
-// up out of the noise. If you have the IR-filter-removed lens you can LOWER
-// these (e.g. AEC ~150, GAIN ~2) for a cleaner, higher-contrast blob.
-#define CAM_AEC_VALUE      500       // 0..1200 raw exposure (was 120)
-#define CAM_AGC_GAIN       14        // 0..30 fixed gain (was 0) -- amplify weak IR
+// The reference build uses an IR-cut-free OV2640. These lower manual values
+// reduce overexposure; calibrate for actual lighting rather than auto-exposure.
+#define CAM_AEC_VALUE      150       // 0..1200, starting point for IR-cut-free OV2640
+#define CAM_AGC_GAIN       2         // 0..30 fixed gain; tune under actual lighting
 #define CAM_BRIGHTNESS     0         // -2..2
 #define CAM_PIXEL_STRIDE   1         // scan every Nth pixel (1=all, 2=faster)
 
@@ -158,26 +156,30 @@
 #define ANALYZE_EVERY_MS   300       // run the analyzer this often
 
 // -----------------------------------------------------------------------------
-//  IR photodiode sensor (analog) - the HIGH-ACCURACY detection path.
-//  An 850 nm photodiode + transimpedance amp (or an IR phototransistor) into an
-//  ADC pin, sampled at ~1 kHz, captures the exact 10 Hz / 20% pulse that the
-//  camera can only approximate. Algorithm follows the proven open-source
-//  Noflock/Flock-IR-Detection approach (EMA baseline + edge/period validation).
-//  See HARDWARE.md for the wiring. Use an ADC1 pin (ADC1 works with WiFi on;
-//  ADC2 does not). D1/GPIO2 = ADC1_CH1 is free.
+//  OPT101 analog pulse input. Independent ADC1 task, measured pulse width/duty,
+//  consecutive intervals, adaptive noise threshold and sampling-gap rejection.
+//  The defaults are a timing profile, not a unique Flock identifier.
+//  Wiring and headroom checks: HARDWARE.md. Behaviour: docs/RADIO.md.
 // -----------------------------------------------------------------------------
 #define IR_SENSOR_PIN         2       // D1 / GPIO2 (ADC1_CH1)
 #define IR_SAMPLE_HZ          1000    // ADC samples per second
 #define IR_RING               256     // decimated scope ring (for the UI)
-#define IR_REFRACTORY_MS      15      // min gap between counted rising edges
-#define IR_MIN_HZ             5.0f     // valid pulse band (Flock ~10 Hz)
-#define IR_MAX_HZ             15.0f
+#define IR_MIN_HZ             8.0f     // configurable timing profile, not device identity
+#define IR_MAX_HZ             12.0f
 #define IR_REQUIRED_INTERVALS 4       // consecutive valid intervals -> detection
-#define IR_ACTIVE_WINDOW_MS   2500    // hold a detection this long after last pulse
+#define IR_ACTIVE_WINDOW_MS   300     // hold a detection this long after last pulse
 #define IR_THR_IDLE           120     // AC threshold (12-bit counts) to arm an edge
-#define IR_THR_LOCKED         70      // lower threshold once tracking (hysteresis)
-#define IR_BASELINE_ALPHA     0.002f  // EMA rate for ambient-light baseline
+#define IR_THR_LOCKED         70      // falling-edge hysteresis floor
 #define IR_DEFAULT_ENABLED    0       // 0 = off until you wire the sensor
+#define IR_DUTY_MIN           0.10f
+#define IR_DUTY_MAX           0.30f
+#define IR_PULSE_MIN_MS       8.0f
+#define IR_PULSE_MAX_MS       35.0f
+#define IR_MAX_SAMPLE_GAP_US  5000
+static_assert(IR_SENSOR_PIN >= 2 && IR_SENSOR_PIN <= 6,
+              "Use a free XIAO Sense ADC1 header pin D1-D5 for OPT101");
+static_assert(IR_SENSOR_PIN != BUZZER_PIN && IR_SENSOR_PIN != GPS_RX_PIN && IR_SENSOR_PIN != GPS_TX_PIN,
+              "OPT101 pin conflicts with another peripheral");
 
 // Re-arm: suppress duplicate log rows / beeps for the same source for this long.
 #define ALERT_HOLDOFF_MS   4000
@@ -186,7 +188,7 @@
 //  Logging
 // -----------------------------------------------------------------------------
 #define CSV_DIR            "/logs"          // IR-detection CSVs live here
-#define CSV_HEADER  "iso_utc,unix_ms,source,lat,lon,alt_m,sats,hdop,freq_hz,duty,confidence,blob_x,blob_y,blob_frac,level_pp"
+#define CSV_HEADER  "iso_utc,uptime_ms,source,lat,lon,alt_m,sats,hdop,freq_hz,duty,confidence,blob_x,blob_y,blob_frac,level_pp,evidence,logged_uptime_ms"
 #define RECENT_ALERTS      12        // how many recent alerts the web UI keeps
 
 // -----------------------------------------------------------------------------
@@ -216,3 +218,9 @@
 #define MIC_CLK_PIN        42
 #define MIC_DATA_PIN       41
 #define MIC_SAMPLE_RATE    16000        // Hz, mono 16-bit
+
+// Radio controls use no peripheral header pads. BOOT restores the dashboard.
+#define RADIO_BOOT_PIN 0
+#define RADIO_DWELL_MS 350
+#define RADIO_CORRELATE_MS 3000
+#define GPS_MAX_AGE_MS 3000

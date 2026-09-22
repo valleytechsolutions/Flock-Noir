@@ -1,14 +1,13 @@
 // =============================================================================
 //  Flock Noir  -  irsensor.h
-//  Analog IR photodiode/phototransistor detector - the high-accuracy path.
-//  A FreeRTOS task samples an ADC pin at ~1 kHz, tracks an EMA ambient baseline,
-//  extracts the AC (pulse) component, validates rising-edge intervals against
-//  the Flock band (~5-15 Hz), and asserts a detection after enough consecutive
-//  valid intervals. This nails the 20 ms/80 ms timing the camera cannot.
-//  Approach follows the open-source Noflock/Flock-IR-Detection project.
+//  OPT101 sampling task and event queue. The portable validator lives in
+//  pulse_detector.h. ADC diagnostics cannot establish sensor connection or
+//  identify the optical source. See docs/RADIO.md for validation and limits.
 // =============================================================================
 #pragma once
 #include <Arduino.h>
+#include <atomic>
+#include <freertos/queue.h>
 #include "config.h"
 
 struct IrResult {
@@ -18,33 +17,40 @@ struct IrResult {
   uint16_t amp        = 0;        // recent peak AC amplitude (ADC counts)
   uint16_t baseline   = 0;        // ambient baseline (ADC counts)
   int      validCount = 0;        // consecutive valid intervals
-  bool     present    = false;    // sensor looks connected (baseline in range)
+  bool     present    = false;    // ADC task running; cannot prove connection
+  bool clipped = false;
+  float pulseMs = 0, sampleHz = 0, noise = 0;
+  uint32_t gaps = 0;
+  uint16_t raw = 0;
+  uint32_t timestampMs = 0, droppedEvents = 0;
 };
 
 class IrSensor {
 public:
   void begin();                       // configure ADC + start the sampling task
-  bool enabled() const { return _enabled; }
+  bool enabled() const;
   void setEnabled(bool e);            // persists to NVS
 
   IrResult result();                  // thread-safe copy of the latest result
+  bool popEvent(IrResult &event);
   int snapshot(uint8_t *out, int maxN); // recent waveform, normalized 0..100
 
 private:
   static void taskThunk(void *arg);
   void run();
 
-  bool _enabled = false;
+  std::atomic<bool> _enabled{false};
   volatile bool _started = false;
 
   // shared result (guarded by _mux)
   IrResult _res;
+  QueueHandle_t _events = nullptr;
   portMUX_TYPE _mux = portMUX_INITIALIZER_UNLOCKED;
 
-  // decimated scope ring (written by task, read by snapshot; races tolerated)
+  // Decimated scope ring, guarded by _mux.
   uint16_t _ring[IR_RING];
-  volatile int _rhead = 0;
-  volatile int _rcount = 0;
+  int _rhead = 0;
+  int _rcount = 0;
 };
 
 extern IrSensor irSensor;

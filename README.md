@@ -43,6 +43,19 @@ Valleytech Custom Solutions | @valleytechsolutions | by Your Pal Kal
 
 ---
 
+## Radio + OPT101 integration (0.4)
+
+Flock Noir now adds passive WiFi Flock/ALPR candidate detection, BLE vendor and
+watchlist scanning, target RSSI tones, WiFi packet capture, BLE advertisement
+capture, and drone Remote ID. OPT101 pulse timing runs alongside wardriving;
+events record their source and supporting evidence. The original UI design and
+four tabs remain. See [features, limits and operation](docs/RADIO.md).
+
+Thanks to **[Colonel Panic](https://colonelpanic.tech/)** and
+**[OUI Spy Unified Blue](https://github.com/colonelpanichacks/oui-spy-unified-blue)**
+for the research and feature inspiration. Please support his work. Full
+[attributions and source provenance](ATTRIBUTIONS.md).
+
 ## Screenshots
 
 | Detector: live IR alert, GPS tag, CSV | Camera: near-IR live view and recording |
@@ -53,10 +66,16 @@ Valleytech Custom Solutions | @valleytechsolutions | by Your Pal Kal
 
 ---
 
+![Radio controls](docs/screenshot-radio.png)
+
+Radio panel preview uses simulated data; it is not a field detection result.
+
 ## What it does
 
 | Capability | Description |
 |---|---|
+| OPT101 pulse timing | Dedicated ADC task; width, duty, consecutive intervals, regularity, clipping and sampling-gap checks. |
+| Radio intelligence | Passive WiFi candidates, BLE watchlists, RSSI tracking, Remote ID, SD captures and evidence logs. |
 | IR camera-flash detection | Watches the camera's near-IR view for a compact source pulsing at the target signature and raises an alert. |
 | GPS logging | Tags each detection with position and time (NMEA GNSS over UART) and appends a row to a CSV on the SD card. |
 | Wi-Fi wardriver | Optionally scans 2.4 GHz Wi-Fi and logs every access point to a separate WiGLE-format CSV, ready to upload to [wigle.net](https://wigle.net). |
@@ -99,11 +118,10 @@ pulse, so the firmware works in the time domain:
 - Other IR emitters can produce a similar pattern. This tool narrows down where to look;
   your eyes make the call.
 
-The most robust way to confirm the exact timing is a dedicated 850 nm photodiode on an ADC
-pin sampled at ~1 kHz. **This is now built in** as a second, high-accuracy detector
+The most robust way to confirm the exact timing is a dedicated OPT101 analog module on an ADC
+pin sampled at ~1 kHz. **This is now built in** as a second pulse-timing detector
 (`irsensor.cpp`) that runs alongside the camera - enable it on the Detector tab once the
-sensor is wired. It follows the proven [Noflock/Flock-IR-Detection](https://github.com/Noflock/Flock-IR-Detection)
-approach. For the full background on how ALPR IR works and how both detectors operate, see
+sensor is wired. It builds on research from [Noflock/Flock-IR-Detection](https://github.com/Noflock/Flock-IR-Detection). For the full background on how ALPR IR works and how both detectors operate, see
 **[DETECTION.md](DETECTION.md)**; for the circuit, see [HARDWARE.md](HARDWARE.md).
 
 ---
@@ -141,43 +159,65 @@ Verified pin map (nothing overlaps the Sense camera or SD):
 | GPS RX (from module TX) | 44 | D7 |
 | GPS TX (to module RX) | 43 | D6 |
 | Buzzer signal | 1 | D0 |
+| OPT101 analog OUT | 2 | D1 / ADC1 |
 
 ---
 
-## Install and flash
+## Install and flash (XIAO ESP32-S3 Sense)
 
-### Option A: flash the prebuilt image (fastest)
+The reference build is **XIAO ESP32-S3 Sense, 8 MB flash, OPI PSRAM**, with
+ATGM336H GPS at 9600 baud, OPT101 on D1 and an OV2640 without its IR-cut filter.
+See [HARDWARE.md](HARDWARE.md) before wiring. The radio build uses the pinned
+Arduino core/NimBLE combination in [platformio.ini](platformio.ini); use that
+configuration rather than an arbitrary Arduino board-package version.
 
-A ready-to-flash, full-chip image is in [binaries/](binaries/).
+### Build and upload with PlatformIO
 
-```bash
-esptool --chip esp32s3 --port <PORT> --baud 921600 write_flash 0x0 \
-  binaries/FlockNoir-merged-0x0.bin
-```
-
-No install needed? Use the web flasher at https://espressif.github.io/esptool-js/, add the
-.bin at offset 0x0, and click Program.
-
-### Option B: build from source (Arduino IDE)
-
-1. Install the esp32 by Espressif core (version 3.x) via Boards Manager.
-2. Install the TinyGPSPlus library. (WiFi, WebServer, DNSServer, SD, SPI, Preferences,
-   ESP_I2S, and esp_camera ship with the core.)
-3. Board: XIAO_ESP32S3. Under Tools set PSRAM to OPI PSRAM, USB CDC On Boot to Enabled, and
-   an 8 MB partition scheme.
-4. Open [firmware/FlockNoir/FlockNoir.ino](firmware/FlockNoir/) (keep all files in that
-   folder together) and click Upload.
-
-### Build from source (arduino-cli)
+Install Python and PlatformIO, then from the repository root:
 
 ```bash
-arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32S3:PSRAM=opi,PartitionScheme=default_8MB \
-  firmware/FlockNoir
+python -m pip install platformio==6.1.19
+python tools/html2header.py
+python -m platformio run -e xiao_esp32s3_sense
+python -m platformio run -e xiao_esp32s3_sense -t upload --upload-port COM44
+python -m platformio device monitor --port COM44 --baud 115200
 ```
 
-To change the logo, replace `firmware/FlockNoir/assets/logo.png`, run
-`python firmware/FlockNoir/tools/logo2header.py`, and rebuild. The logo is embedded
-unaltered and served at /logo.png.
+Replace `COM44` with your actual port (`/dev/ttyACM0` on many Linux systems).
+TinyGPSPlus 1.0.3 is the existing GPS parser; its pinned version and the external
+GPS profile preserve ATGM336H wiring and 9600 baud. The remaining radio, camera,
+SD and web APIs ship with the pinned ESP32 core. A 6 MB application partition
+leaves room for the combined build; this partition layout has no OTA slot.
+
+### Flash the merged image
+
+The current full image and SHA-256 checksum are in [binaries/](binaries/).
+Build output also includes `.pio/build/xiao_esp32s3_sense/firmware.factory.bin`.
+
+```bash
+python -m pip install esptool
+python -m esptool --chip esp32s3 --port COM44 --baud 460800 write-flash 0x0 binaries/FlockNoir-merged-0x0.bin
+```
+
+Use a USB-C **data** cable. If the board will not enter the bootloader, hold BOOT,
+press and release RESET, release BOOT, and try again. If transfers fail, use
+115200 baud. No full-chip erase is normally necessary. Flashing a factory image
+changes the application/partition layout; back up any older flash filesystem
+contents you need. The microSD card is separate and is not formatted by flashing.
+
+For browser flashing, open [Espressif's esptool-js](https://espressif.github.io/esptool-js/)
+using desktop Chrome or Edge, connect the board, select the merged binary at
+**0x0**, and program. Do not flash the application-only `firmware.bin` at 0x0.
+Do not install Unified Blue's binary onto this build expecting Sense pin mappings.
+
+After reboot: join **Flock Noir**, password **flocknoir**, and open `192.168.4.1`.
+Confirm GPS bytes arrive, SD mounts and the OPT101 responds to light. Enable its
+Detector toggle, enable WiGLE in Wardrive, and apply Field mode for passive
+channel hopping. **Hold BOOT for 1.5 seconds** to restore the dashboard.
+
+Firmware builds and host regression tests run in GitHub Actions. A compile and
+synthetic tests do not establish field accuracy; follow the hardware test
+checklist in [docs/RADIO.md](docs/RADIO.md#validation-before-relying-on-a-build).
 
 ---
 
@@ -195,8 +235,8 @@ The interface has four tabs:
   and a CSV download.
 - Camera: live near-IR view, plus a record button for MJPEG AVI (optionally with a WAV
   from the microphone).
-- Wardrive: a toggle for Wi-Fi wardriving and a WiGLE CSV download. Scanning pauses while a
-  phone is connected so the page stays responsive; drive with the phone disconnected to log.
+- Wardrive: radio modes, BLE scanning, watchlists, target tracking, capture downloads,
+  saved radio sessions and the independent WiGLE toggle. Hold BOOT to return from Field mode.
 - Settings: enable or disable the buzzer and edit the RTTTL tone library, with presets and
   a Test button. Settings are saved on the device.
 
@@ -204,12 +244,13 @@ The interface has four tabs:
 
 ## Logs and data
 
-Two independent logs are written to the SD card:
+IR, radio and WiGLE data are kept in separate files on the SD card:
 
 | Log | Path | Format |
 |---|---|---|
-| IR detections | /logs/flock_*.csv | iso_utc, unix_ms, lat, lon, alt_m, sats, hdop, freq_hz, duty, confidence, blob_x, blob_y, blob_frac, level_pp |
+| IR detections | /logs/flock_*.csv | iso_utc, uptime_ms, source, lat, lon, alt_m, sats, hdop, freq_hz, duty, confidence, blob_x, blob_y, blob_frac, level_pp, evidence, logged_uptime_ms |
 | Wi-Fi wardrive | /wardrive/wigle_*.csv | WiGLE 1.4 (MAC, SSID, AuthMode, FirstSeen, Channel, RSSI, Lat, Lon, Alt, Accuracy, Type) |
+| Radio events and captures | /radio/events_*.jsonl, wifi_*.pcap, ble_*.jsonl | [Schemas, limits and downloads](docs/RADIO.md#data-and-resource-limits) |
 | Recordings | /videos/rec_*.avi (and .wav) | MJPEG AVI (and PCM WAV) |
 
 ---
@@ -258,7 +299,7 @@ A TV remote (IR, at a different rate) is a handy way to confirm the pipeline is 
 |       |-- buzzer.h/.cpp        non-blocking RTTTL player and NVS tone library
 |       |-- wardriver.h/.cpp     async Wi-Fi scan to WiGLE CSV
 |       |-- recorder.h/.cpp      MJPEG-AVI writer with optional WAV
-|       |-- irsensor.h/.cpp      analog 850nm photodiode detector (1 kHz ADC task)
+|       |-- irsensor.h/.cpp      OPT101 pulse detector (target 1 kHz ADC task)
 |       |-- web_ui.h             the web UI embedded in flash (generated from web/index.html)
 |       |-- logo.h               embedded logo (generated)
 |       |-- assets/logo.png      source logo
@@ -281,7 +322,7 @@ A TV remote (IR, at a different rate) is a handy way to confirm the pipeline is 
 - [x] Branded UI, passive-buzzer RTTTL alerts, and settings
 - [x] Wi-Fi wardriver (WiGLE CSV, separate log)
 - [x] Live near-IR view and MJPEG-AVI / WAV recording
-- [ ] 850 nm photodiode front end for exact-timing confirmation and sensor fusion
+- [x] OPT101 pulse validation and temporal IR/radio evidence correlation (XIAO)
 - [ ] Rolling-shutter band analysis to recover the 20/80 shape from single frames
 - [ ] On-device map, GPX, and KML export
 - [ ] Bluetooth / BLE OUI detection
@@ -299,7 +340,7 @@ Thanks to:
   devices, and was a primary inspiration for the signature-detection approach here.
 - **Noflock / Flock-IR-Detection** ([github.com/Noflock/Flock-IR-Detection](https://github.com/Noflock/Flock-IR-Detection)).
   The photodiode circuit and the edge/period IR-detection algorithm in Flock Noir follow this
-  project's proven approach for passively detecting Flock IR pulses at speed.
+  project's photodiode pulse-detection research; Flock Noir still requires field validation.
 - **justcallmekoko, ESP32 Marauder** ([github.com/justcallmekoko/ESP32Marauder](https://github.com/justcallmekoko/ESP32Marauder)).
   The reference open-source ESP32 wireless research toolkit; its approachable, hackable
   design for wardriving and radio recon shaped how Flock Noir's wireless side is built.
@@ -343,3 +384,5 @@ attribution. See the license file for the full text and the experimental-softwar
 Made by Valleytech Custom Solutions | @valleytechsolutions | Your Pal Kal
 
 </div>
+
+See [ATTRIBUTIONS.md](ATTRIBUTIONS.md) for the full OUI Spy / Unified Blue credits, support links and research provenance.

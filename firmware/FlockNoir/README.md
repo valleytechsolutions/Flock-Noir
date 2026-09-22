@@ -1,55 +1,33 @@
-# Firmware - FlockNoir (Arduino sketch)
+# Flock Noir firmware - XIAO ESP32-S3 Sense
 
-This folder is the Arduino sketch for the **Flock Noir**. For the project
-overview, the **experimental disclaimer**, the parts list, and wiring, see the repository
-root: **[../../README.md](../../README.md)** and **[../../HARDWARE.md](../../HARDWARE.md)**.
-
->  **Experimental.** This detects an IR flash *pattern consistent with* some ALPR cameras -
-> it is **not** a definitive detector. **Always visually confirm** an actual camera.
-
-## Build
-
-- **esp32** core **v3.x** + **TinyGPSPlus** (everything else ships with the core).
-- Board **XIAO_ESP32S3**, **PSRAM: OPI**, **USB CDC On Boot: Enabled**, 8 MB partition.
+Use the pinned Arduino framework through the root [PlatformIO configuration](../../platformio.ini).
+The tested target has 8 MB flash, OPI PSRAM, ATGM336H UART at 9600 baud,
+OPT101 OUT on D1/GPIO2, OV2640 on the Sense ribbon and microSD CS on GPIO21.
 
 ```bash
-arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32S3:PSRAM=opi,PartitionScheme=default_8MB .
-# add --upload -p <PORT> to flash
+python tools/html2header.py
+python -m platformio run -e xiao_esp32s3_sense
+python -m platformio run -e xiao_esp32s3_sense -t upload --upload-port COM44
 ```
 
-## Files
+Run these from the repository root; replace the port. See the
+[installation guide](../../README.md#install-and-flash-xiao-esp32-s3-sense),
+[wiring](../../HARDWARE.md), [radio feature guide](../../docs/RADIO.md) and
+[credits](../../ATTRIBUTIONS.md). No arbitrary ESP32 core versions: this radio
+implementation uses the NimBLE host supplied by the pinned platform.
 
-| File | Role |
-|------|------|
-| `FlockNoir.ino` | Main loop: camera -> detector -> GPS/CSV -> buzzer -> wardriver -> recorder -> web |
-| `config.h` | **All pins & tunables** (Wi-Fi, GPS, buzzer, SD, detection thresholds, wardrive, recorder) |
-| `detector.h/.cpp` | Time-domain IR pattern detector (period + duty + compactness -> confidence) |
-| `buzzer.h/.cpp` | Non-blocking RTTTL player + NVS-persisted tone library |
-| `wardriver.h/.cpp` | Async Wi-Fi scan -> WiGLE CSV (separate log); NVS on/off |
-| `recorder.h/.cpp` | MJPEG-AVI writer (+ optional PDM-mic WAV sidecar) |
-| `web_ui.h` | The web app (HTML/CSS/JS), served from flash |
-| `logo.h` | Embedded logo (generated - do not hand-edit) |
-| `assets/logo.png` | Source logo |
-| `tools/logo2header.py` | `assets/logo.png` -> `logo.h` converter |
+`config.h` owns pins and defaults. `pulse_detector.h` and `radio_protocol.h`
+contain host-testable detection/parsing. `irsensor.cpp` samples independently;
+`radio.cpp` queues and processes observations outside driver callbacks.
+`radio_routes.ino` exposes radio APIs through the existing server.
+`web_ui.h` is generated from `web/index.html`; edit the HTML and regenerate.
 
-## Custom logo
-
-Replace `assets/logo.png`, then:
+Host checks (C++17 compiler required):
 
 ```bash
-python tools/logo2header.py
+c++ -std=c++17 -Wall -Wextra -Werror -I firmware/FlockNoir tests/detection_test.cpp firmware/FlockNoir/detector.cpp -o detection_test
+./detection_test
 ```
 
-Rebuild. The image is embedded unaltered and served at `/logo.png` (an SD-card `/logo.png`
-overrides it, no recompile needed).
-
-## Tuning (in `config.h`)
-
-| Symptom | Try |
-|---|---|
-| Nothing detects / view too bright | Lower `CAM_AEC_VALUE`; keep `CAM_AGC_GAIN` = 0 |
-| Blob never saturates | Lower `SAT_THRESHOLD`, or use an IR-filter-removed lens |
-| Too many false positives | Raise `DETECT_CONFIDENCE` / `MIN_GOOD_CYCLES`; tighten `PERIOD_TOL_MS`, `DUTY_MIN/MAX` |
-| Misses real cameras | Loosen `PERIOD_TOL_MS`; widen `DUTY_MIN/MAX`; lower `MIN_AMPLITUDE` |
-| Using the Seeed L76K GPS | Set `GPS_BAUD 9600` (LC29H uses 115200) |
-| Camera glitches when buzzer plays | Change `BUZZER_LEDC_CHANNEL` |
+Software tests do not replace the optical, radio-coexistence and GPS/SD hardware
+checks in the radio guide. An alert indicates evidence, not confirmed identity.

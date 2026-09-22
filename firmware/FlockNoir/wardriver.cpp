@@ -2,6 +2,7 @@
 //  Flock Noir  -  wardriver.cpp
 // =============================================================================
 #include "wardriver.h"
+#include "radio.h"
 #include <WiFi.h>
 #include <FS.h>
 #include <SD.h>
@@ -60,8 +61,8 @@ void Wardriver::begin(bool sdReady) {
   if (_sdReady) {
     if (!SD.exists(WARDRIVE_DIR)) SD.mkdir(WARDRIVE_DIR);
     char name[64];
-    snprintf(name, sizeof(name), "%s/wigle_%lu.csv", WARDRIVE_DIR,
-             (unsigned long)millis());
+    snprintf(name, sizeof(name), "%s/wigle_%08lx.csv", WARDRIVE_DIR,
+             (unsigned long)esp_random());
     _csvPath = name;
     writeHeader();
   }
@@ -99,6 +100,7 @@ void Wardriver::remember(uint64_t b) {
 // -----------------------------------------------------------------------------
 void Wardriver::update(bool haveFix, double lat, double lon, double alt,
                        const char *whenStr) {
+  if (radio.field()) { _scanning = false; return; }
   int st = WiFi.scanComplete();
 
   if (st == WIFI_SCAN_RUNNING) { _scanning = true; return; }
@@ -119,8 +121,9 @@ void Wardriver::update(bool haveFix, double lat, double lon, double alt,
   // wardriver can never lock you out of the UI.
   bool uiInUse = (WiFi.softAPgetStationNum() > 0);
   if (_enabled && !uiInUse && (millis() - _lastScanAt >= WARDRIVE_SCAN_MS)) {
-    WiFi.scanNetworks(true /*async*/, true /*show_hidden*/);
-    _scanning = true;
+    int result = WiFi.scanNetworks(true /*async*/, true /*show_hidden*/, true /*passive*/, 120);
+    _scanning = result == WIFI_SCAN_RUNNING;
+    _lastScanAt = millis(); // a failed start retries after the normal interval
   }
 }
 
@@ -139,20 +142,32 @@ void Wardriver::process(int n, bool haveFix, double lat, double lon, double alt,
     if (!bssid) continue;
     uint64_t id = bssidToU64(bssid);
     if (seen(id)) continue;                        // logged recently -> skip
-    remember(id);
     _newThisScan++;
 
     if (f) {
       String ssid = csvField(WiFi.SSID(i));
       // AccuracyMeters: rough GPS accuracy placeholder (WiGLE expects a number).
-      f.printf("%s,%s,%s,%s,%d,%d,%.6f,%.6f,%.1f,%.1f,WIFI\n",
+      size_t written = f.printf("%s,%s,%s,%s,%d,%d,%.6f,%.6f,%.1f,%.1f,WIFI\n",
                WiFi.BSSIDstr(i).c_str(), ssid.c_str(),
                authToWigle(WiFi.encryptionType(i)), whenStr,
                WiFi.channel(i), WiFi.RSSI(i),
                haveFix ? lat : 0.0, haveFix ? lon : 0.0,
                haveFix ? alt : 0.0, haveFix ? 10.0 : 9999.0);
-      _logged++;
+      if (written) { remember(id); _logged++; }
     }
   }
   if (f) f.close();
+}
+
+void Wardriver::observePassive(const uint8_t *mac, const char *ssid, int channel, int rssi,
+ bool privacy, bool fix, double lat, double lon, double alt, const char *when) {
+  if (!_enabled || !_sdReady || (WARDRIVE_LOG_NEEDS_FIX && !fix)) return;
+  uint64_t id=bssidToU64(mac); if(seen(id)) return;
+  File f=SD.open(_csvPath,FILE_APPEND);if(!f)return;
+  char address[18];snprintf(address,sizeof(address),"%02X:%02X:%02X:%02X:%02X:%02X",mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
+  // Privacy bit alone cannot distinguish WPA/WEP; leave that explicit.
+  size_t written=f.printf("%s,%s,%s,%s,%d,%d,%.6f,%.6f,%.1f,%.1f,WIFI\n",
+    address,csvField(ssid).c_str(),privacy?"[UNKNOWN][ESS]":"[ESS]",when,channel,rssi,
+    fix?lat:0,fix?lon:0,fix?alt:0,fix?10.0:9999.0);
+  if(written) {remember(id);++_logged;++_lastScanTotal;++_newThisScan;}
 }

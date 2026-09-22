@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="640" viewBox="0 0 1000 640">
+<rect width="1000" height="640" fill="#0a1016"/>
+<g font-family="monospace" fill="#d8e6ec">
+<text x="40" y="48" font-size="26">FLOCK NOIR / XIAO ESP32-S3 SENSE</text>
+<text x="40" y="80" font-size="15" fill="#5f7681">OPT101 + ATGM336H + OV2640 without IR-cut filter</text>
+<rect x="370" y="115" width="260" height="410" rx="12" fill="#0d151c" stroke="#57b6ff"/>
+<text x="400" y="152" font-size="20">XIAO S3 SENSE</text>
+<text x="400" y="183" font-size="14">USB-C power / flash</text>
+<text x="390" y="233" font-size="16">3V3</text><text x="390" y="278" font-size="16">GND</text>
+<text x="390" y="323" font-size="16">D1 / GPIO2 (ADC1)</text>
+<text x="390" y="453" font-size="16">D0 / GPIO1</text>
+<text x="450" y="383" font-size="16">D7 / GPIO44 RX</text>
+<text x="450" y="418" font-size="16">D6 / GPIO43 TX</text>
+<text x="393" y="495" font-size="14">BOOT: hold 1.5s for UI</text>
+<rect x="40" y="180" width="210" height="160" rx="8" fill="#0d151c" stroke="#3dfba0"/>
+<text x="60" y="210" font-size="20">OPT101 breakout</text>
+<text x="65" y="238" font-size="16">VCC</text><text x="65" y="278" font-size="16">GND</text>
+<text x="65" y="318" font-size="16">OUT (analog)</text>
+<path d="M250 230 H370" fill="none" stroke="#ffcb57" stroke-width="3"/>
+<path d="M250 275 H370" fill="none" stroke="#9aaeb7" stroke-width="3"/>
+<path d="M250 320 H370" fill="none" stroke="#3dfba0" stroke-width="3"/>
+<rect x="720" y="290" width="240" height="145" rx="8" fill="#0d151c" stroke="#57b6ff"/>
+<text x="742" y="323" font-size="20">ATGM336H GPS</text>
+<text x="742" y="350" font-size="14">NMEA UART / 9600 baud</text>
+<text x="742" y="383" font-size="16">TX</text><text x="742" y="418" font-size="16">RX (optional)</text>
+<path d="M630 378 H720 M630 413 H720" fill="none" stroke="#57b6ff" stroke-width="3"/>
+<text x="715" y="461" font-size="13">GPS supply: follow breakout rating;</text>
+<text x="715" y="482" font-size="13">UART must be 3.3 V. Common GND.</text>
+<rect x="40" y="410" width="230" height="78" rx="8" fill="#0d151c" stroke="#ffcb57"/>
+<text x="57" y="438" font-size="17">PASSIVE PIEZO</text>
+<text x="57" y="466" font-size="14">+ via 100 ohm / - GND</text>
+<path d="M270 450 H370" fill="none" stroke="#ffcb57" stroke-width="3"/>
+<text x="710" y="165" font-size="16">OV2640: Sense ribbon connector</text>
+<text x="710" y="192" font-size="16">microSD: onboard slot, FAT32</text>
+<text x="710" y="219" font-size="16">WiFi/BLE: included antenna</text>
+<text x="40" y="562" font-size="16">Power off before wiring. OPT101 OUT must stay within the 3.3 V input limit.</text>
+<text x="40" y="591" font-size="14">Breakout terminal positions vary. Bare OPT101 chip pinout is in HARDWARE.md.</text>
+<text x="40" y="616" font-size="14">GPIO21 belongs to microSD CS: do not wire an OUI Spy NeoPixel to it.</text>
+</g></svg>

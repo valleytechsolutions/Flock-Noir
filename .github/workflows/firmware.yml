@@ -1,0 +1,40 @@
+name: Build XIAO firmware
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  xiao:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Host pulse and packet regression tests
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -I firmware/FlockNoir tests/detection_test.cpp firmware/FlockNoir/detector.cpp -o /tmp/detection_test
+          /tmp/detection_test
+      - name: Check generated UI
+        run: |
+          python tools/html2header.py
+          git diff --exit-code -- firmware/FlockNoir/web_ui.h
+      - name: Build pinned XIAO Sense firmware
+        run: |
+          python -m pip install platformio==6.1.19
+          python -m platformio run -e xiao_esp32s3_sense
+      - name: Browser checks with simulated APIs
+        run: |
+          python -m pip install playwright==1.63.0
+          python -m playwright install --with-deps chromium
+          python tests/ui_smoke.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FlockNoir-XIAO-Sense
+          path: |
+            .pio/build/xiao_esp32s3_sense/firmware.factory.bin
+            .pio/build/xiao_esp32s3_sense/firmware.bin
+            .pio/build/xiao_esp32s3_sense/bootloader.bin
+            .pio/build/xiao_esp32s3_sense/partitions.bin

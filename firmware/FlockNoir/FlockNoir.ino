@@ -36,6 +36,7 @@
 #include "wardriver.h"
 #include "recorder.h"
 #include "irsensor.h"
+#include "radio.h"
 #include "web_ui.h"
 #include "logo.h"
 
@@ -50,6 +51,8 @@ HardwareSerial GPSserial(GPS_UART_NUM);
 Detector    detector;
 
 bool     g_sdReady   = false;
+bool g_cameraReady = false;
+uint32_t g_logErrors = 0;
 uint32_t g_sdTotalMB = 0, g_sdFreeMB = 0;
 uint32_t g_scanned   = 1;            // scanned pixels per frame
 uint32_t g_logged    = 0;
@@ -61,15 +64,17 @@ String   g_csvPath;
 uint32_t g_frames = 0, g_fpsWin = 0;
 float    g_fps = 0;
 
-struct RecentAlert { char t[24]; char src[8]; double lat, lon; float hz, duty, conf; };
+struct RecentAlert { char t[24]; char src[8]; char evidence[24]; double lat, lon; float hz, duty, conf; };
 RecentAlert g_recent[RECENT_ALERTS];
 int         g_recentCount = 0, g_recentHead = 0;
 
 // ---------------------------------------------------------------------------
 //  Time / GPS helpers
 // ---------------------------------------------------------------------------
+bool freshFix() { return gps.location.isValid() && gps.location.age() < GPS_MAX_AGE_MS; }
+
 void isoUtc(char *out, size_t n) {
-  if (gps.date.isValid() && gps.time.isValid()) {
+  if (gps.date.isValid() && gps.time.isValid() && gps.time.age() < GPS_MAX_AGE_MS) {
     snprintf(out, n, "%04d-%02d-%02dT%02d:%02d:%02dZ",
              gps.date.year(), gps.date.month(), gps.date.day(),
              gps.time.hour(), gps.time.minute(), gps.time.second());
@@ -80,7 +85,7 @@ void isoUtc(char *out, size_t n) {
 
 // WiGLE "FirstSeen" wants "YYYY-MM-DD HH:MM:SS".
 void wigleTime(char *out, size_t n) {
-  if (gps.date.isValid() && gps.time.isValid()) {
+  if (gps.date.isValid() && gps.time.isValid() && gps.time.age() < GPS_MAX_AGE_MS) {
     snprintf(out, n, "%04d-%02d-%02d %02d:%02d:%02d",
              gps.date.year(), gps.date.month(), gps.date.day(),
              gps.time.hour(), gps.time.minute(), gps.time.second());
@@ -121,16 +126,18 @@ bool initCamera() {
   // auto-corrected away. This is the biggest lever for detection quality.
   sensor_t *s = esp_camera_sensor_get();
   if (s) {
-    s->set_whitebal(s, 0);
-    s->set_awb_gain(s, 0);
-    s->set_exposure_ctrl(s, 0);   // AEC off
-    s->set_aec2(s, 0);
-    s->set_gain_ctrl(s, 0);       // AGC off
-    s->set_aec_value(s, CAM_AEC_VALUE);
-    s->set_agc_gain(s, CAM_AGC_GAIN);
-    s->set_brightness(s, CAM_BRIGHTNESS);
-    s->set_gainceiling(s, GAINCEILING_2X);
-    s->set_lenc(s, 1);            // lens correction on
+    int controls = 0;
+    controls |= s->set_whitebal(s, 0);
+    controls |= s->set_awb_gain(s, 0);
+    controls |= s->set_exposure_ctrl(s, 0);   // AEC off
+    controls |= s->set_aec2(s, 0);
+    controls |= s->set_gain_ctrl(s, 0);       // AGC off
+    controls |= s->set_aec_value(s, CAM_AEC_VALUE);
+    controls |= s->set_agc_gain(s, CAM_AGC_GAIN);
+    controls |= s->set_brightness(s, CAM_BRIGHTNESS);
+    controls |= s->set_gainceiling(s, GAINCEILING_2X);
+    controls |= s->set_lenc(s, 1);            // lens correction on
+    if (controls) Serial.println("[CAM] one or more sensor controls failed");
   }
   return true;
 }
@@ -170,16 +177,16 @@ bool initSD() {
     Serial.println("[SD] mount failed (card in? formatted FAT32?)");
     return false;
   }
-  if (!SD.exists(CSV_DIR)) SD.mkdir(CSV_DIR);
+  if (!SD.exists(CSV_DIR) && !SD.mkdir(CSV_DIR)) return false;
 
   char name[48];
-  snprintf(name, sizeof(name), "%s/flock_%lu.csv", CSV_DIR,
-           (unsigned long)(millis()));
+  snprintf(name, sizeof(name), "%s/flock_%08lx.csv", CSV_DIR,
+           (unsigned long)esp_random());
   g_csvPath = name;
 
   File f = SD.open(g_csvPath, FILE_WRITE);
   if (!f) { Serial.println("[SD] cannot open csv"); return false; }
-  f.println(CSV_HEADER);
+  if (!f.println(CSV_HEADER)) return false;
   f.close();
   g_sdTotalMB = (uint32_t)(SD.totalBytes() >> 20);
   g_sdFreeMB  = (uint32_t)((SD.totalBytes() - SD.usedBytes()) >> 20);
@@ -190,10 +197,11 @@ bool initSD() {
 
 // Generic hit logger used by BOTH the camera detector and the IR photodiode.
 void logHit(const char *source, float freqHz, float duty, float conf,
-            uint16_t bx, uint16_t by, float blobFrac, uint16_t levelPP) {
+            uint16_t bx, uint16_t by, float blobFrac, uint16_t levelPP, uint32_t observedMs) {
   char iso[24]; isoUtc(iso, sizeof(iso));
-  double lat = gps.location.isValid() ? gps.location.lat() : NAN;
-  double lon = gps.location.isValid() ? gps.location.lng() : NAN;
+  bool fixAtLog = freshFix() && millis()-observedMs <= GPS_MAX_AGE_MS;
+  double lat = fixAtLog ? gps.location.lat() : NAN;
+  double lon = fixAtLog ? gps.location.lng() : NAN;
   double alt = gps.altitude.isValid() ? gps.altitude.meters() : NAN;
   int    sats= gps.satellites.isValid()? gps.satellites.value() : 0;
   double hdop= gps.hdop.isValid() ? gps.hdop.hdop() : NAN;
@@ -202,6 +210,8 @@ void logHit(const char *source, float freqHz, float duty, float conf,
   RecentAlert &ra = g_recent[g_recentHead];
   strncpy(ra.t, iso, sizeof(ra.t)); ra.t[sizeof(ra.t)-1]=0;
   strncpy(ra.src, source, sizeof(ra.src)); ra.src[sizeof(ra.src)-1]=0;
+  const char *evidence = !strcmp(source,"ir") ? (radio.recentAlpr(observedMs) ? "ir_radio_nearby" : "ir_timing_match") : "camera_pattern";
+  strlcpy(ra.evidence,evidence,sizeof(ra.evidence));
   ra.lat = lat; ra.lon = lon; ra.hz = freqHz; ra.duty = duty; ra.conf = conf;
   g_recentHead = (g_recentHead + 1) % RECENT_ALERTS;
   if (g_recentCount < RECENT_ALERTS) g_recentCount++;
@@ -211,18 +221,18 @@ void logHit(const char *source, float freqHz, float duty, float conf,
   if (g_sdReady) {
     File f = SD.open(g_csvPath, FILE_APPEND);
     if (f) {
-      f.printf("%s,%llu,%s,%.6f,%.6f,%.1f,%d,%.1f,%.2f,%.3f,%.3f,%u,%u,%.3f,%u\n",
-               iso, (unsigned long long)millis(), source, lat, lon, alt, sats, hdop,
-               freqHz, duty, conf, bx, by, blobFrac, levelPP);
+      if (!f.printf("%s,%llu,%s,%.6f,%.6f,%.1f,%d,%.1f,%.2f,%.3f,%.3f,%u,%u,%.3f,%u,%s,%lu\n",
+               iso, (unsigned long long)observedMs, source, lat, lon, alt, sats, hdop,
+               freqHz, duty, conf, bx, by, blobFrac, levelPP, evidence, (unsigned long)millis())) ++g_logErrors;
       f.close();
-    }
+    } else ++g_logErrors;
   }
   Serial.printf("[ALERT/%s] %s  %.6f,%.6f  %.1fHz duty=%.0f%% conf=%.2f\n",
                 source, iso, lat, lon, freqHz, duty*100, conf);
 }
 
 void logDetection(const DetectionResult &d, uint16_t bx, uint16_t by) {
-  logHit("camera", d.freqHz, d.dutyCycle, d.confidence, bx, by, d.blobFrac, d.levelPP);
+  logHit("camera", d.freqHz, d.dutyCycle, d.confidence, bx, by, d.blobFrac, d.levelPP, millis());
 }
 
 // ---------------------------------------------------------------------------
@@ -251,7 +261,7 @@ void handleStatus() {
   j += ",\"fps\":"       + String(g_fps, 1);
   j += ",\"sd\":"        + String(g_sdReady ? "true":"false");
   j += ",\"logged\":"    + String(g_logged);
-  j += ",\"fix\":"       + String(gps.location.isValid() ? "true":"false");
+  j += ",\"fix\":"       + String(freshFix() ? "true":"false");
   j += ",\"buzzer\":"    + String(buzzer.enabled() ? "true":"false");
   j += ",\"wd\":"        + String(wardriver.enabled() ? "true":"false");
   j += ",\"wdScan\":"    + String(wardriver.scanning() ? "true":"false");
@@ -263,7 +273,7 @@ void handleStatus() {
   j += ",\"recSecs\":"   + String(recorder.seconds());
   j += ",\"recFrames\":" + String(recorder.frames());
   j += ",\"sats\":"      + String(gps.satellites.isValid()? gps.satellites.value():0);
-  if (gps.location.isValid()) {
+  if (freshFix()) {
     j += ",\"lat\":" + String(gps.location.lat(), 6);
     j += ",\"lon\":" + String(gps.location.lng(), 6);
   }
@@ -296,6 +306,16 @@ void handleStatus() {
     for (int i = 0; i < wn; i++) { if (i) j += ","; j += String(w[i]); }
     j += "]";
   }
+  j += ",\"irRaw\":" + String(ir.raw);
+  j += ",\"irBaseline\":" + String(ir.baseline);
+  j += ",\"irClipped\":" + String(ir.clipped ? "true":"false");
+  j += ",\"irPulseMs\":" + String(ir.pulseMs,1);
+  j += ",\"irSampleHz\":" + String(ir.sampleHz,1);
+  j += ",\"irGaps\":" + String(ir.gaps);
+  j += ",\"irDroppedEvents\":" + String(ir.droppedEvents);
+  j += ",\"irNoise\":" + String(ir.noise,1);
+  j += ",\"radioNearby\":" + String(radio.recentAlpr(millis()) ? "true":"false");
+  j += ",\"logErrors\":" + String(g_logErrors);
   // system / QoL
   j += ",\"muted\":"   + String(g_muted ? "true":"false");
   j += ",\"uptime\":"  + String((uint32_t)(millis()/1000));
@@ -314,9 +334,9 @@ void handleStatus() {
     RecentAlert &ra = g_recent[idx];
     if (i) j += ",";
     j += "{\"t\":\"" + String(ra.t) + "\",\"src\":\"" + String(ra.src) +
-         "\",\"lat\":" + String(ra.lat,6) +
-         ",\"lon\":" + String(ra.lon,6) + ",\"hz\":" + String(ra.hz,2) +
-         ",\"duty\":" + String(ra.duty,3) + ",\"conf\":" + String(ra.conf,3) + "}";
+         "\",\"lat\":" + jsonNumber(ra.lat) +
+         ",\"lon\":" + jsonNumber(ra.lon) + ",\"hz\":" + String(ra.hz,2) +
+         ",\"duty\":" + String(ra.duty,3) + ",\"conf\":" + String(ra.conf,3) + ",\"evidence\":" + jsonQuote(ra.evidence) + "}";
   }
   j += "]}";
   server.send(200, "application/json", j);
@@ -345,7 +365,7 @@ void handleWardriveCsv() {
 // The browser re-requests this a few times a second for a "video" feed, which
 // coexists with the detection loop far better than a blocking MJPEG stream.
 void handleFrame() {
-  camera_fb_t *fb = esp_camera_fb_get();
+  camera_fb_t *fb = g_cameraReady ? esp_camera_fb_get() : nullptr;
   if (!fb) { server.send(503, "text/plain", "no frame"); return; }
   uint8_t *jpg = nullptr; size_t jpgLen = 0;
   bool ok = frame2jpg(fb, 80, &jpg, &jpgLen);
@@ -476,11 +496,13 @@ void handleTest() {
 void setup() {
   Serial.begin(115200);
   delay(300);
-  Serial.println("\n=== Flock Noir v0.3 ===");
+  Serial.println("\n=== Flock Noir v0.4 ===");
 
   GPSserial.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+  if (!GPSserial) Serial.println("[GPS] UART initialization failed");
 
-  if (!initCamera()) Serial.println("[CAM] DISABLED (check ribbon/pins)");
+  g_cameraReady = initCamera();
+  if (!g_cameraReady) Serial.println("[CAM] DISABLED (check ribbon/pins)");
   detector.begin(g_scanned);
   buzzer.begin();                    // loads tones from NVS, optional boot chirp
 
@@ -489,10 +511,10 @@ void setup() {
   irSensor.begin();                  // starts the 1 kHz ADC sampling task
 
   // AP + STA: SoftAP serves the UI; STA lets the wardriver scan WiFi.
-  WiFi.mode(WIFI_AP_STA);
+  if (!WiFi.mode(WIFI_AP_STA)) Serial.println("[AP] mode failed");
   // Pin the SoftAP to 192.168.4.1 (this is also the ESP32 default, made explicit).
-  WiFi.softAPConfig(AP_IP, AP_IP, IPAddress(255, 255, 255, 0));
-  WiFi.softAP(AP_SSID, (strlen(AP_PASSWORD) >= 8) ? AP_PASSWORD : nullptr);
+  if (!WiFi.softAPConfig(AP_IP, AP_IP, IPAddress(255, 255, 255, 0))) Serial.println("[AP] config failed");
+  if (!WiFi.softAP(AP_SSID, (strlen(AP_PASSWORD) >= 8) ? AP_PASSWORD : nullptr)) Serial.println("[AP] start failed");
   WiFi.setSleep(false);
   Serial.print("[AP] "); Serial.print(AP_SSID);
   Serial.print("  http://"); Serial.println(WiFi.softAPIP());
@@ -503,6 +525,7 @@ void setup() {
   dnsServer.start(53, "*", AP_IP);
 
   wardriver.begin(g_sdReady);
+  radio.begin(g_sdReady);
   Serial.printf("[WD] wardriver %s -> %s\n",
                 wardriver.enabled() ? "ON" : "off", wardriver.csvPath().c_str());
 
@@ -521,6 +544,7 @@ void setup() {
   server.on("/api/settings", HTTP_GET, handleGetSettings);
   server.on("/api/settings", HTTP_POST, handleSetSettings);
   server.on("/api/test", HTTP_POST, handleTest);
+  registerRadioRoutes();
   server.onNotFound(handleCaptive);        // captive-portal redirect for phones
   server.begin();
 
@@ -543,14 +567,16 @@ void loop() {
                   (unsigned long)gps.passedChecksum(),
                   (unsigned long)gps.failedChecksum(),
                   gps.satellites.isValid() ? gps.satellites.value() : 0,
-                  gps.location.isValid() ? 1 : 0);
+                  freshFix() ? 1 : 0);
   }
 
   // 2) grab + scan one camera frame
-  camera_fb_t *fb = esp_camera_fb_get();
+  camera_fb_t *fb = g_cameraReady ? esp_camera_fb_get() : nullptr;
   if (fb) {
     uint16_t level, blobPx, cx, cy;
     scanFrame(fb, level, blobPx, cx, cy);
+    static bool detectorSized = false;
+    if (!detectorSized) { detector.begin(g_scanned); detectorSized = true; }
     detector.feed(level, blobPx, micros());
     recorder.addVideoFrame(fb);           // append to AVI if recording
     esp_camera_fb_return(fb);
@@ -579,16 +605,12 @@ void loop() {
     }
   }
 
-  // 3b) IR photodiode detector (runs on its own 1 kHz task; we just act on it)
-  if (irSensor.enabled()) {
-    IrResult ir = irSensor.result();
-    uint32_t now = millis();
-    if (ir.detected && (now - g_lastAlert >= ALERT_HOLDOFF_MS)) {
-      g_lastAlert = now;
-      float conf = ir.validCount >= 8 ? 1.0f : ir.validCount / 8.0f;
-      logHit("ir", ir.freqHz, ir.dutyCycle, conf, 0, 0, 0, ir.amp);
-      if (!g_muted) buzzer.playAlert();
-    }
+  // Drain latched IR events even if an SD download delayed the foreground loop.
+  IrResult event;
+  while (irSensor.popEvent(event)) {
+    float conf = min(1.0f, event.validCount / 8.0f);
+    logHit("ir", event.freqHz, event.dutyCycle, conf, 0, 0, 0, event.amp, event.timestampMs);
+    if (!g_muted) buzzer.playAlert();
   }
 
   // 4) advance buzzer tune + drain mic audio if recording (non-blocking)
@@ -597,13 +619,18 @@ void loop() {
 
   // 5) wardriver: async WiFi scan -> WiGLE CSV (separate file), GPS-tagged
   {
-    bool fix   = gps.location.isValid();
+    bool fix   = freshFix();
     double lat = fix ? gps.location.lat() : 0.0;
     double lon = fix ? gps.location.lng() : 0.0;
     double alt = gps.altitude.isValid() ? gps.altitude.meters() : 0.0;
     char when[24]; wigleTime(when, sizeof(when));
     wardriver.update(fix, lat, lon, alt, when);
   }
+
+  char radioIso[24]; isoUtc(radioIso,sizeof(radioIso));
+  radio.update(freshFix(), gps.location.lat(), gps.location.lng(), gps.altitude.meters(), radioIso,
+               irSensor.result().detected, detector.last().detected, g_muted);
+  serviceRadioSerial();
 
   // 6) serve web clients (cheap, non-blocking)
   server.handleClient();

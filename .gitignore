@@ -27,3 +27,6 @@ desktop.ini
 
 # Do NOT ignore the prebuilt release image:
 !binaries/*.bin
+
+.pio/
+.test-build/

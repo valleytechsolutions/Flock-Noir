@@ -164,7 +164,11 @@ DetectionResult Detector::analyze() {
   // is kept loose because a 20 ms pulse can fall between frames at ~40 fps.
   r.detected = (cyclesInTol >= MIN_GOOD_CYCLES) &&
                (periodScore >= PERIOD_SCORE_MIN) &&
+               (r.dutyCycle >= DUTY_MIN) &&
                (r.dutyCycle <= DUTY_MAX) &&
+               (r.blobFrac <= BLOB_MAX_FRACTION) &&
+               haveRise &&
+               (_buf[idxAt(_head, _count, _count - 1)].t_us - lastRise_us <= 350000) &&
                (r.jitter <= JITTER_MAX) &&
                (r.confidence >= DETECT_CONFIDENCE);
 

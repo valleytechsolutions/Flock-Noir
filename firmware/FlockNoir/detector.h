@@ -11,7 +11,8 @@
 //     IR illuminator from mains flicker, indicators, and steady lights.
 // =============================================================================
 #pragma once
-#include <Arduino.h>
+#include <stdint.h>
+#include <math.h>
 #include "config.h"
 
 struct Sample {

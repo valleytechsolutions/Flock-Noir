@@ -18,11 +18,11 @@ These directly improve the core job (seeing the ALPR IR flash). Do these first.
 | Part | Approx cost | Why it matters |
 |------|-------------|----------------|
 | **OV2640 lens with the IR-cut filter removed** (or a spare lens you de-filter) | $3 - 8 | The single biggest win. A stock lens blocks most 850 nm light, so the camera barely sees the signal. Removing the IR-cut filter lets the sensor actually see 850 nm. |
-| **850 nm IR photodiode or phototransistor** (dark / IR-pass lens type) | ~$0.30 each, or a 100-pack kit for ~$8 | A dedicated fast IR channel. Wired to a free ADC pin (D1-D5) and sampled at 1-2 kHz, it captures the exact 20 ms / 80 ms pulse the camera can only approximate. This is the path to reliable detection. |
+| **850 nm IR photodiode or phototransistor** (dark / IR-pass lens type) | ~$0.30 each, or a 100-pack kit for ~$8 | A dedicated fast IR channel. Wired to a free ADC pin (D1-D5) and sampled at 1-2 kHz, it provides finer timing than the camera. The current reference build uses an OPT101 module; see HARDWARE.md. |
 | **IR band filter for the photodiode** | $0 - 40 | Cheap option: a black-epoxy IR photodiode already blocks most visible light. Precise option: a narrow 850 nm bandpass optical filter (~$15-40) for the cleanest signal and fewest false positives. |
 
 The firmware is structured so a photodiode ADC path can run alongside the camera and
-fuse the two (camera says "which direction", photodiode says "yes, that is the pattern").
+record their evidence separately. The XIAO radio integration adds temporal correlation, not positive device identification.
 
 ## Tier 2: field usability
 

@@ -1,147 +1,103 @@
-// =============================================================================
-//  Flock Noir  -  irsensor.cpp
-// =============================================================================
 #include "irsensor.h"
+#include "pulse_detector.h"
 #include <Preferences.h>
+#include <esp_timer.h>
 
 IrSensor irSensor;
 static Preferences irPrefs;
-
 void IrSensor::begin() {
-  irPrefs.begin("flockir", true);
-  _enabled = irPrefs.getBool("en", IR_DEFAULT_ENABLED ? true : false);
-  irPrefs.end();
-
+  if (irPrefs.begin("flockir", true)) {
+    _enabled = irPrefs.getBool("en", IR_DEFAULT_ENABLED != 0); irPrefs.end();
+  }
   analogReadResolution(12);
-  analogSetPinAttenuation(IR_SENSOR_PIN, ADC_11db);   // ~full 0..3.1V range
-
+  analogSetPinAttenuation(IR_SENSOR_PIN, ADC_11db);
+  if (!_events) _events = xQueueCreate(8, sizeof(IrResult));
+  if (!_events) Serial.println("[IR] event queue allocation failed");
   if (!_started) {
-    _started = true;
-    xTaskCreatePinnedToCore(taskThunk, "irsensor", 4096, this, 2, nullptr, 0);
+    _started = xTaskCreatePinnedToCore(taskThunk, "irsensor", 4096, this, 3, nullptr, 1) == pdPASS;
+    if (!_started) Serial.println("[IR] task creation failed");
   }
 }
-
-void IrSensor::setEnabled(bool e) {
-  _enabled = e;
-  irPrefs.begin("flockir", false);
-  irPrefs.putBool("en", e);
-  irPrefs.end();
+bool IrSensor::enabled() const { return _enabled.load(); }
+bool IrSensor::popEvent(IrResult &event) {
+  return _events && xQueueReceive(_events, &event, 0) == pdTRUE;
 }
-
+void IrSensor::setEnabled(bool e) {
+  _enabled.store(e);
+  if (irPrefs.begin("flockir", false)) {
+    if (!irPrefs.putBool("en", e)) Serial.println("[IR] settings write failed");
+    irPrefs.end();
+  }
+}
 IrResult IrSensor::result() {
-  IrResult r;
-  portENTER_CRITICAL(&_mux);
-  r = _res;
-  portEXIT_CRITICAL(&_mux);
+  portENTER_CRITICAL(&_mux); IrResult r = _res; portEXIT_CRITICAL(&_mux);
+  if (!enabled()) r.detected = false;
   return r;
 }
-
 int IrSensor::snapshot(uint8_t *out, int maxN) {
-  int cnt = _rcount, head = _rhead;
-  int n = (cnt < maxN) ? cnt : maxN;
-  if (n <= 0) return 0;
-  int start = (head - n + IR_RING) % IR_RING;
-  uint16_t vmin = 0xFFFF, vmax = 0;
-  for (int i = 0; i < n; i++) {
-    uint16_t v = _ring[(start + i) % IR_RING];
-    if (v < vmin) vmin = v;
-    if (v > vmax) vmax = v;
-  }
-  int range = (vmax > vmin) ? (vmax - vmin) : 1;
-  for (int i = 0; i < n; i++) {
-    uint16_t v = _ring[(start + i) % IR_RING];
-    out[i] = (uint8_t)(((int)(v - vmin) * 100) / range);
-  }
+  if (!out || maxN <= 0) return 0;
+  uint16_t values[64];
+  portENTER_CRITICAL(&_mux);
+  int n = min(min(_rcount, maxN), 64);
+  for (int i = 0; i < n; ++i) values[i] = _ring[(_rhead - n + i + IR_RING) % IR_RING];
+  portEXIT_CRITICAL(&_mux);
+  uint16_t low = 4095, high = 0;
+  for (int i = 0; i < n; ++i) { low = min(low, values[i]); high = max(high, values[i]); }
+  for (int i = 0; i < n; ++i) out[i] = (values[i] - low) * 100 / max(1, int(high - low));
   return n;
 }
-
 void IrSensor::taskThunk(void *arg) { static_cast<IrSensor *>(arg)->run(); }
-
-// -----------------------------------------------------------------------------
-//  1 kHz sampling loop: EMA baseline, AC extraction, edge/interval validation.
-// -----------------------------------------------------------------------------
 void IrSensor::run() {
-  const TickType_t period = pdMS_TO_TICKS(1000 / IR_SAMPLE_HZ);  // ~1 ms
+  PulseDetector pulse;
+  pulse.config.minHz = IR_MIN_HZ; pulse.config.maxHz = IR_MAX_HZ;
+  pulse.config.threshold = IR_THR_IDLE; pulse.config.release = IR_THR_LOCKED;
+  pulse.config.required = IR_REQUIRED_INTERVALS;
+  pulse.config.staleUs = IR_ACTIVE_WINDOW_MS * 1000;
+  pulse.config.minDuty = IR_DUTY_MIN; pulse.config.maxDuty = IR_DUTY_MAX;
+  pulse.config.minWidthMs = IR_PULSE_MIN_MS; pulse.config.maxWidthMs = IR_PULSE_MAX_MS;
+  pulse.config.maxGapUs = IR_MAX_SAMPLE_GAP_US;
   TickType_t last = xTaskGetTickCount();
-
-  float    baseline   = analogRead(IR_SENSOR_PIN);
-  bool     high       = false;             // above-threshold state (hysteresis)
-  uint32_t lastEdgeMs = 0;                  // time of last counted rising edge
-  uint32_t prevEdgeMs = 0;
-  int      validCount = 0;
-  uint16_t ampWin     = 0;                   // running peak AC (decays)
-  float    onAccum    = 0, totAccum = 0;     // for duty estimate
-  uint32_t lastActive = 0;                   // last time a valid pulse train seen
-  int      decim      = 0;
-  const int DECN      = IR_SAMPLE_HZ / 200;  // ~200 Hz into the scope ring
-
+  const TickType_t ticks = max(TickType_t(1), pdMS_TO_TICKS(1000 / IR_SAMPLE_HZ));
+  uint32_t publish = 0, samples = 0, rateAt = millis();
+  float rate = 0;
+  int decim = 0;
+  bool wasEnabled = false;
+  uint32_t lastEvent = 0, droppedEvents = 0;
+  bool previousMatch = false;
   for (;;) {
-    int raw = analogRead(IR_SENSOR_PIN);
-    uint32_t nowMs = millis();
-
-    // ambient baseline (slow EMA) and AC (upward pulses)
-    baseline += (raw - baseline) * IR_BASELINE_ALPHA;
-    int ac = raw - (int)baseline;
-    if (ac < 0) ac = 0;
-    if ((uint16_t)ac > ampWin) ampWin = ac;
-    else ampWin = (uint16_t)(ampWin * 0.995f);   // slow decay
-
-    // duty estimate over a rolling sense of "on" (above locked threshold)
-    totAccum = totAccum * 0.999f + 1.0f;
-    onAccum  = onAccum  * 0.999f + (ac > IR_THR_LOCKED ? 1.0f : 0.0f);
-
-    // hysteresis edge detection with a refractory gap
-    if (!high && ac > IR_THR_IDLE && (nowMs - lastEdgeMs) >= IR_REFRACTORY_MS) {
-      high = true;
-      uint32_t interval = nowMs - lastEdgeMs;
-      if (prevEdgeMs != 0) {
-        float hz = (interval > 0) ? (1000.0f / interval) : 0.0f;
-        if (hz >= IR_MIN_HZ && hz <= IR_MAX_HZ) {
-          validCount++;
-          lastActive = nowMs;
-        } else if (interval > 400) {
-          validCount = 0;                  // long gap resets the train
-        }
-      }
-      prevEdgeMs = lastEdgeMs;
-      lastEdgeMs = nowMs;
-    } else if (high && ac < IR_THR_LOCKED) {
-      high = false;
-    }
-
-    // decimate into the scope ring
-    if (++decim >= DECN) {
+    bool en = enabled();
+    uint16_t raw = analogRead(IR_SENSOR_PIN);
+    uint32_t now = millis();
+    if (en != wasEnabled) { pulse.reset(); wasEnabled = en; previousMatch = false; }
+    if (en) pulse.feed(raw, uint32_t(esp_timer_get_time()));
+    ++samples;
+    if (now - rateAt >= 1000) { rate = samples * 1000.0f / (now - rateAt); samples = 0; rateAt = now; }
+    if (++decim >= max(1, IR_SAMPLE_HZ / 200)) {
       decim = 0;
-      _ring[_rhead] = (uint16_t)raw;
-      _rhead = (_rhead + 1) % IR_RING;
-      if (_rcount < IR_RING) _rcount++;
-    }
-
-    // publish result ~ every 100 ms
-    static uint32_t pub = 0;
-    if (nowMs - pub >= 100) {
-      pub = nowMs;
-      bool active = (nowMs - lastActive) <= IR_ACTIVE_WINDOW_MS;
-      bool det = active && (validCount >= IR_REQUIRED_INTERVALS);
-      // freq from the most recent valid interval spacing
-      float hz = 0.0f;
-      uint32_t iv = lastEdgeMs - prevEdgeMs;
-      if (iv > 0 && iv < 400) hz = 1000.0f / iv;
-      float duty = (totAccum > 1) ? (onAccum / totAccum) : 0.0f;
-
       portENTER_CRITICAL(&_mux);
-      _res.detected   = det;
-      _res.freqHz     = det ? hz : 0.0f;
-      _res.dutyCycle  = duty;
-      _res.amp        = ampWin;
-      _res.baseline   = (uint16_t)baseline;
-      _res.validCount = validCount;
-      _res.present    = (baseline > 30 && baseline < 4060);  // not floating rail
+      _ring[_rhead] = raw; _rhead = (_rhead + 1) % IR_RING;
+      if (_rcount < IR_RING) ++_rcount;
       portEXIT_CRITICAL(&_mux);
-
-      if (!active) validCount = 0;         // decay the train when idle
     }
-
-    vTaskDelayUntil(&last, period);
+    if (now - publish >= 100) {
+      publish = now;
+      IrResult r;
+      r.detected = en && pulse.matched;
+      r.freqHz = pulse.frequency; r.dutyCycle = pulse.duty;
+      r.amp = uint16_t(pulse.amplitude); r.baseline = uint16_t(pulse.baseline);
+      r.validCount = pulse.valid; r.present = _started;
+      r.clipped = pulse.clipped; r.pulseMs = pulse.widthMs;
+      r.sampleHz = rate; r.gaps = pulse.gaps; r.noise = pulse.noise; r.raw = raw;
+      r.timestampMs = now;
+      if (r.detected && (!previousMatch || now-lastEvent >= ALERT_HOLDOFF_MS)) {
+        if (!_events || xQueueSend(_events,&r,0)!=pdTRUE) ++droppedEvents;
+        lastEvent = now;
+      }
+      previousMatch = r.detected;
+      r.droppedEvents = droppedEvents;
+      portENTER_CRITICAL(&_mux); _res = r; portEXIT_CRITICAL(&_mux);
+    }
+    vTaskDelayUntil(&last, ticks);
+    if (xTaskGetTickCount() - last > ticks) last = xTaskGetTickCount();
   }
 }

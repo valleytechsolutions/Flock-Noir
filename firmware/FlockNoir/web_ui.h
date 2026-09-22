@@ -51,6 +51,7 @@ header{display:flex;align-items:center;gap:16px;padding:16px 16px 12px;max-width
  padding:12px 16px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
 .tab:hover{color:var(--ink)}
 .tab.on{color:var(--green);border-bottom-color:var(--green)}
+@media(max-width:480px){.tab{padding:12px 10px;font-size:11px}.row-head{flex-wrap:wrap;gap:6px}}
 
 /* ---- cards / tiles ---- */
 .card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);
@@ -94,9 +95,9 @@ td.right,th.right{text-align:right}
 /* ---- settings ---- */
 .field{margin:14px 0}
 .field label{display:block;color:var(--mut);font-size:11px;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px}
-input[type=text],textarea{width:100%;background:#060c11;border:1px solid var(--line);border-radius:8px;
+input[type=text],input[type=number],select,textarea{width:100%;background:#060c11;border:1px solid var(--line);border-radius:8px;
  color:var(--ink);font:13px var(--mono);padding:9px 10px}
-input[type=text]:focus,textarea:focus{outline:none;border-color:var(--green)}
+input[type=text]:focus,input[type=number]:focus,select:focus,textarea:focus{outline:none;border-color:var(--green)}
 textarea{resize:vertical;min-height:52px}
 .switch{position:relative;display:inline-block;width:48px;height:26px}
 .switch input{display:none}
@@ -207,9 +208,10 @@ footer .spacer{flex:1}
         <label class="switch"><input type="checkbox" id="irEn"><span class="slider"></span></label></div>
       <canvas id="irwave" width="880" height="70"
         style="width:100%;height:70px;display:block;background:#060c11;border:1px solid var(--line);border-radius:8px"></canvas>
-      <div class="hint" style="margin-top:8px">High-accuracy path (samples at 1 kHz, nails the exact pulse). Wire an 850 nm
-        photodiode / phototransistor to <b>D1 (GPIO2)</b> - see <a href="https://github.com/valleytechsolutions/Flock-Noir/blob/main/HARDWARE.md">HARDWARE.md</a> -
+      <div class="hint" style="margin-top:8px">OPT101 pulse timing: VCC to <b>3V3</b>, GND to <b>GND</b>, OUT to
+        <b>D1 (GPIO2)</b> on the XIAO. Pi builds use MCP3008 CH0. See <a href="https://github.com/valleytechsolutions/Flock-Noir/blob/main/HARDWARE.md">HARDWARE.md</a> -
         then flip this on. Status: <b id="irStat">off</b>.</div>
+      <div class="hint" id="irHealth"></div>
     </div>
 
     <div class="card">
@@ -253,15 +255,46 @@ footer .spacer{flex:1}
 
   <!-- ============ WARDRIVE ============ -->
   <section id="wardrive" hidden>
+    <div class="card" id="radioCard" hidden>
+      <div class="row-head"><strong>Radio intelligence</strong><span style="flex:1"></span><span id="radioHealth" class="dim"></span></div>
+      <div class="hint">Passive WiFi and BLE signatures, drone Remote ID, and IR evidence in one session.
+        <b>Field mode turns off the hotspot</b> and hops channels 1-11. Hold <b>BOOT for 1.5 seconds</b>
+        to restore this dashboard. IR sampling continues in both modes.</div>
+      <div class="grid">
+        <div class="field"><label for="radioMode">Radio mode</label><select id="radioMode"><option value="dashboard">Dashboard</option><option value="field">Field / channel hopping</option></select></div>
+        <div class="field"><label for="radioChannel">Dashboard channel (1-11)</label><input id="radioChannel" type="number" min="1" max="11" value="1"></div>
+      </div>
+      <div style="display:flex;gap:18px;margin-top:12px;flex-wrap:wrap">
+        <label><input type="checkbox" id="radioBle" checked> BLE scanning</label>
+        <label><input type="checkbox" id="radioCapture"> Save packet captures to SD</label>
+      </div>
+      <div class="field" style="margin-top:14px"><label for="radioWatch">Additional watchlist (one per line)</label>
+        <textarea id="radioWatch" rows="3" maxlength="1024" placeholder="oui:B4:1E:52&#10;name:Penguin&#10;cid:034D&#10;svc:FC81"></textarea></div>
+      <div class="field" style="margin-top:12px"><label for="radioTarget">Track a MAC address (RSSI tone; empty to stop)</label>
+        <input id="radioTarget" type="text" maxlength="17" placeholder="AA:BB:CC:DD:EE:FF"></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
+        <button class="btn primary" id="radioSave">APPLY RADIO SETTINGS</button>
+        <a class="btn" href="/api/radio/log" download>Radio events</a>
+        <a class="btn" href="/api/radio/pcap" download>WiFi PCAP</a>
+        <a class="btn" href="/api/radio/ble" download>BLE advertisements</a>
+        <button class="btn ghost" id="radioFilesBtn">Saved sessions</button>
+      </div>
+      <div class="hint" id="radioCounts"></div><div class="hint" id="radioFiles"></div>
+      <div style="overflow-x:auto"><table><thead><tr><th>Device / name</th><th>Evidence</th><th>RSSI</th><th>Age</th></tr></thead><tbody id="radioRows"></tbody></table></div>
+      <div class="hint">OUI and company IDs are shared by unrelated devices. RSSI indicates received signal strength, not distance.
+        An IR timing match plus a nearby radio candidate does not establish that they are the same device.</div>
+      <div class="hint">Inspired by <a href="https://colonelpanic.tech/" target="_blank" rel="noopener">Colonel Panic</a> and
+        <a href="https://github.com/colonelpanichacks/oui-spy-unified-blue" target="_blank" rel="noopener">OUI Spy Unified Blue</a>.</div>
+    </div>
     <div class="card">
       <div class="row-head"><strong>WiFi wardriver (WiGLE)</strong>
         <span style="flex:1"></span>
         <label class="switch"><input type="checkbox" id="wdEn"><span class="slider"></span></label></div>
       <div class="hint" style="margin-top:0">Logs nearby 2.4&nbsp;GHz WiFi APs to a
         <b>separate</b> WiGLE-format CSV (<code>/wardrive/wigle_*.csv</code>), GPS-tagged -
-        upload straight to wigle.net. Runs alongside IR detection. <b>Scanning auto-pauses while
-        a device is connected to this UI</b> (so the page stays fast) - turn it on, then
-        drive with the phone disconnected and it logs to SD on its own.</div>
+        upload straight to wigle.net. Runs alongside IR detection. Dashboard mode pauses
+        full-channel surveys while a phone is connected; current-channel sniffing continues.
+        In field mode, beacons are logged as the radio hops. Enable this toggle before driving.</div>
 
       <div class="grid">
         <div class="tile"><div class="k">APs (last scan)</div><div class="v" id="wdTotal">--</div></div>
@@ -304,7 +337,7 @@ footer .spacer{flex:1}
 <footer>
   <span class="sig">- Your Pal <b>Kal</b></span>
   <span class="spacer"></span>
-  <span>@valleytechsolutions | Valleytech Custom Solutions | Flock Noir v0.3</span>
+  <span>@valleytechsolutions | Valleytech Custom Solutions | Flock Noir v0.4</span>
 </footer>
 
 <div class="toast" id="toast"></div>
@@ -394,8 +427,10 @@ async function tick(){
     const s=await (await fetch('/api/status',{cache:'no-store'})).json();
     $('#led').style.background=(blink^=1)?'var(--green)':'var(--green-d)';
     const b=$('#banner');
-    if(s.detected){b.className='banner alert';
-      $('#bannerTxt').textContent='IR CAMERA FLASH DETECTED  -  '+fmt(s.freq,1)+' Hz, '+fmt(s.duty*100,0)+'% duty, conf '+fmt(s.confidence,2);}
+    if(s.irDet){b.className='banner alert';
+      $('#bannerTxt').textContent=(s.radioNearby?'IR + RADIO NEARBY':'IR TIMING MATCH')+'  -  '+fmt(s.irFreq,1)+' Hz, '+fmt(s.irDuty*100,0)+'% duty';}
+    else if(s.detected){b.className='banner alert';
+      $('#bannerTxt').textContent='CAMERA PULSE PATTERN  -  '+fmt(s.freq,1)+' Hz, '+fmt(s.duty*100,0)+'% duty, conf '+fmt(s.confidence,2);}
     else{b.className='banner clear';$('#bannerTxt').textContent='SCANNING FOR IR CAMERA FLASH...';}
     $('#freq').innerHTML=fmt(s.freq,1)+'<small> Hz</small>';
     $('#duty').innerHTML=fmt(s.duty*100,0)+'<small> %</small>';
@@ -415,8 +450,12 @@ async function tick(){
     $('#irMeta').textContent=(s.irEn?('amp '+(s.irAmp??0)+'  |  '+fmt(s.irFreq,1)+' Hz'):'');
     $('#irStat').innerHTML = !s.irEn ? 'off'
       : (s.irDet ? '<span class="no">PULSE DETECTED</span>'
-        : (s.irPresent ? '<span class="ok">armed - sensor connected</span>'
+        : (s.irPresent ? '<span class="ok">sampling - verify response to light</span>'
           : '<span style="color:var(--amber)">armed - no sensor signal</span>'));
+    $('#irHealth').textContent=s.irSampleHz==null?'':
+      'Sampling '+fmt(s.irSampleHz,0)+' Hz | pulse '+fmt(s.irPulseMs,1)+' ms | raw '+s.irRaw+
+      ' | baseline '+s.irBaseline+' | noise '+fmt(s.irNoise,1)+' | gaps '+s.irGaps+
+      (s.irClipped?' | ADC CLIPPING - reduce incoming light':'');
     // system / QoL
     if(document.activeElement!==$('#mute'))$('#mute').checked=!!s.muted;
     const up=s.uptime||0, hh=Math.floor(up/3600), mm=Math.floor((up%3600)/60);
@@ -435,16 +474,63 @@ async function tick(){
     $('#wdLogged').textContent=s.wdLogged??0;
     $('#wdStat').innerHTML=s.wd?(s.wdScan?'<span class="ok">scanning</span>':'<span class="ok">on</span>'):'<span class="dim">off</span>';
     if(document.activeElement!==$('#wdEn'))$('#wdEn').checked=!!s.wd;
-    $('#wdFixNote').innerHTML=s.fix?'':'<b class="no">No GPS fix</b> - APs are counted but not written to CSV until a fix is acquired.';
+    $('#wdFixNote').innerHTML=s.fix?'':'<b class="no">No GPS fix</b> - WiGLE logging waits for a current position fix.';
     if(s.time)$('#clock').textContent=s.time.replace('T',' ').replace('Z','');
     const rows=$('#rows');
     if(s.recent&&s.recent.length){rows.innerHTML=s.recent.map(a=>
-      '<tr><td>'+a.t+'</td><td>'+(a.src||'')+'</td><td>'+fmt(a.lat,6)+'</td><td>'+fmt(a.lon,6)+
+      '<tr><td>'+a.t+'</td><td>'+escapeHtml((a.src||'')+(a.evidence?' / '+a.evidence:''))+'</td><td>'+fmt(a.lat,6)+'</td><td>'+fmt(a.lon,6)+
       '</td><td class="right ok">'+fmt(a.hz,1)+'</td><td class="right">'+fmt(a.duty*100,0)+
       '%</td><td class="right">'+fmt(a.conf,2)+'</td></tr>').join('');}
   }catch(e){$('#led').style.background='var(--red)';}
 }
 setInterval(tick,500); tick();
+
+/* ---- radio controls; shared Pi UI hides unsupported hardware ---- */
+function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+let radioLoaded=false,radioBusy=false;
+async function pollRadio(){
+  if(radioBusy)return;radioBusy=true;
+  try{
+    const response=await fetch('/api/radio',{cache:'no-store'});
+    if(!response.ok)return;
+    const r=await response.json();if(!r.supported)return;
+    $('#radioCard').hidden=false;
+    if(!radioLoaded){
+      $('#radioMode').value=r.mode;$('#radioChannel').value=r.channel;
+      $('#radioBle').checked=r.ble;$('#radioCapture').checked=r.capture;
+      $('#radioWatch').value=r.watch;$('#radioTarget').value=r.target;radioLoaded=true;
+    }
+    $('#radioHealth').textContent=r.mode+' | channel '+r.channel;
+    $('#radioCounts').textContent='Packets '+r.packets+' | queue drops '+r.dropped+' | SD errors '+r.logErrors+
+      (r.wifiReady?'':' | WiFi unavailable')+(r.ble && !r.bleReady?' | BLE unavailable':'')+
+      (r.captureFull?' | Capture limit reached':'');
+    if(!$('#wardrive').hidden){
+      const devices=await (await fetch('/api/radio/devices',{cache:'no-store'})).json();
+      $('#radioRows').innerHTML=devices.sort((a,b)=>b.tier-a.tier||a.ageMs-b.ageMs).slice(0,64).map(d=>
+        '<tr><td>'+escapeHtml(d.mac)+'<br><span class="dim">'+escapeHtml(d.protocol+' '+(d.name||d.droneId||''))+
+        '</span></td><td>'+escapeHtml(d.category||'Advertisement')+'<br><span class="dim">'+escapeHtml(d.method)+
+        '</span></td><td>'+d.rssi+' dBm</td><td>'+fmt(d.ageMs/1000,1)+'s</td></tr>').join('');
+    }
+  }catch(e){}finally{radioBusy=false;}
+}
+$('#radioSave').onclick=async()=>{
+  const body=new URLSearchParams({mode:$('#radioMode').value,channel:$('#radioChannel').value,
+    ble:$('#radioBle').checked?'1':'0',capture:$('#radioCapture').checked?'1':'0',
+    watch:$('#radioWatch').value,target:$('#radioTarget').value.trim()});
+  try{
+    const response=await fetch('/api/radio',{method:'POST',body});
+    if(!response.ok){toast('Invalid radio settings or storage failure');return;}
+    toast($('#radioMode').value==='field'?'Field mode: hold BOOT to return':'Radio settings saved');
+  }catch(e){toast('Could not save radio settings');}
+};
+$('#radioFilesBtn').onclick=async()=>{
+  try{
+    const files=await (await fetch('/api/radio/files')).json();
+    $('#radioFiles').innerHTML=files.length?files.map(f=>'<a href="/api/radio/file?name='+
+      encodeURIComponent(f.name)+'" download>'+escapeHtml(f.name)+'</a> ('+f.size+' bytes)').join('<br>'):'No saved radio sessions';
+  }catch(e){toast('Could not load sessions');}
+};
+setInterval(pollRadio,2500);pollRadio();
 
 /* ---- settings ---- */
 const PRESETS={
