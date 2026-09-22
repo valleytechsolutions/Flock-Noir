@@ -137,7 +137,7 @@ footer .spacer{flex:1}
 /* ---- live camera view ---- */
 .cam-wrap{position:relative;margin-top:14px;max-width:560px;background:#000;border:1px solid var(--line);
  border-radius:10px;overflow:hidden;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center}
-.cam-wrap #cam{width:100%;height:100%;object-fit:contain;image-rendering:pixelated;display:block}
+.cam-wrap #cam{width:100%;height:100%;object-fit:contain;image-rendering:auto;display:block}
 .cam-wrap #cam:not([src]){opacity:0}
 .cam-hud{position:absolute;top:0;left:0;right:0;display:flex;gap:8px;padding:8px 10px;font-size:11px;
  letter-spacing:1.5px;color:var(--green);pointer-events:none;
@@ -179,7 +179,7 @@ footer .spacer{flex:1}
   <!-- ============ DETECTOR ============ -->
   <section id="detector">
     <div id="banner" class="banner clear">
-      <span id="bannerTxt">SCANNING FOR IR CAMERA FLASH...</span></div>
+      <span id="bannerTxt">SCANNING FOR ALPR / DEVICE SIGNATURES + IR...</span></div>
 
     <div style="display:flex;align-items:center;gap:16px;margin-top:10px;font-size:11px;color:var(--mut);flex-wrap:wrap">
       <label class="radio" style="color:var(--ink)"><input type="checkbox" id="mute"> mute alerts</label>
@@ -196,6 +196,16 @@ footer .spacer{flex:1}
       <div class="tile"><div class="k">Camera</div><div class="v" id="fps">--<small> fps</small></div></div>
       <div class="tile"><div class="k">microSD</div><div class="v" id="sd">--</div></div>
       <div class="tile"><div class="k">Detections</div><div class="v" id="count">0</div></div>
+    </div>
+
+    <div class="card" id="detectorRadioCard" hidden>
+      <div class="row-head"><strong>ALPR / device detections</strong><span style="flex:1"></span>
+        <a class="btn sm" href="/api/radio/log" download>EVENT LOG</a></div>
+      <div class="hint" id="detectorRadioHealth"></div>
+      <div style="overflow-x:auto"><table><thead><tr><th>Device / name</th><th>Evidence</th><th>RSSI</th><th>Age</th></tr></thead>
+        <tbody id="detectorRadioRows"></tbody></table></div>
+      <div class="hint">Flock-You WiFi/BLE rules, Axon, Meta, Flipper Zero and Pineapple candidates are enabled automatically.
+        New device encounters play Mario when alerts are enabled. Tier 1 is a weak hint; signatures can be shared or spoofed.</div>
     </div>
 
     <div class="card">
@@ -237,7 +247,7 @@ footer .spacer{flex:1}
     <div class="card">
       <div class="row-head"><strong>Live NIR view</strong><span style="flex:1"></span>
         <button class="btn primary" id="camBtn">START LIVE VIEW</button></div>
-      <div class="hint" style="margin-top:0">The camera runs grayscale at low fixed exposure <i>for detection</i>, so this is
+      <div class="hint" style="margin-top:0">Near-IR view (640×480 on XIAO) with fixed exposure <i>for detection</i>. This is
         a <b>near-infrared view</b> - bright blobs are IR / light sources. Point it at a suspected ALPR and watch
         for a fast-flickering hot spot. Refreshes a few frames/sec so detection keeps running.</div>
       <div class="cam-wrap" id="camWrap">
@@ -322,7 +332,7 @@ footer .spacer{flex:1}
       <div class="row-head"><strong>Buzzer &amp; alert tones</strong>
         <span style="flex:1"></span>
         <label class="switch"><input type="checkbox" id="buzEn"><span class="slider"></span></label></div>
-      <div class="hint" style="margin-top:0">Plays the selected tone when an ALPR IR flash is detected. Use a
+      <div class="hint" style="margin-top:0">Radio device alerts play the Mario phrase. The selected tone below plays for optical pulse matches. Use a
         <b>passive piezo buzzer</b> on <code>GPIO1 (D0)</code> to GND. Tones are stored on the device.</div>
 
       <div id="tones"></div>
@@ -415,7 +425,7 @@ function camStop(){camOn=false;$('#camBtn').innerHTML='START LIVE VIEW';
 function camNext(){if(camOn)camImg.src='/api/frame.jpg?t='+Date.now();}
 camImg.onload=()=>{if(!camOn)return;camFrames++;const n=performance.now();
   if(n-camT0>=1000){$('#camFps').textContent=camFrames+' fps';camFrames=0;camT0=n;}
-  setTimeout(camNext,50);};
+  setTimeout(camNext,250);};
 camImg.onerror=()=>{if(camOn)setTimeout(camNext,400);};
 $('#camBtn').onclick=()=>{camOn=!camOn;
   if(camOn){$('#camBtn').innerHTML='STOP';$('#camState').textContent='LIVE';
@@ -439,7 +449,9 @@ async function tick(){
       $('#bannerTxt').textContent=(s.radioNearby?'IR + RADIO NEARBY':'IR TIMING MATCH')+'  -  '+fmt(s.irFreq,1)+' Hz, '+fmt(s.irDuty*100,0)+'% duty';}
     else if(s.detected){b.className='banner alert';
       $('#bannerTxt').textContent='CAMERA PULSE PATTERN  -  '+fmt(s.freq,1)+' Hz, '+fmt(s.duty*100,0)+'% duty, conf '+fmt(s.confidence,2);}
-    else{b.className='banner clear';$('#bannerTxt').textContent='SCANNING FOR IR CAMERA FLASH...';}
+    else if(s.radioAlert){b.className='banner alert';
+      $('#bannerTxt').textContent=(s.radioAlert.alpr?(s.radioAlert.assessment||'possible_camera').replaceAll('_',' ').toUpperCase()+' / ':'')+s.radioAlert.category.toUpperCase()+' - '+s.radioAlert.method+' (tier '+s.radioAlert.tier+')';}
+    else{b.className='banner clear';$('#bannerTxt').textContent='SCANNING FOR ALPR / DEVICE SIGNATURES + IR...';}
     $('#freq').innerHTML=fmt(s.freq,1)+'<small> Hz</small>';
     $('#duty').innerHTML=fmt(s.duty*100,0)+'<small> %</small>';
     $('#conf').style.width=Math.round((s.confidence||0)*100)+'%';
@@ -470,7 +482,7 @@ async function tick(){
     $('#sysInfo').textContent='uptime '+hh+'h '+mm+'m  |  SD '+(s.sdFree??'?')+'/'+(s.sdTotal??'?')+' MB free';
     $('#fps').innerHTML=fmt(s.fps,0)+'<small> fps</small>';
     $('#sd').innerHTML=s.sd?'<span class="ok">ready</span>':'<span class="no">no card</span>';
-    $('#count').textContent=s.logged??0;
+    $('#count').textContent=(s.logged||0)+(s.radioEvents||0);
     // recording button/state
     if(s.rec){$('#recBtn').classList.add('on');
       $('#recBtn').innerHTML='STOP '+(s.recSecs||0)+'s';
@@ -505,6 +517,7 @@ async function pollRadio(){
     radioHardware=r.hardware||'xiao';
     if(r.modeHint)$('#radioModeHint').textContent=r.modeHint;
     $('#radioCard').hidden=false;
+    $('#detectorRadioCard').hidden=false;
     if(!radioLoaded){
       $('#radioMode').value=r.mode;$('#radioChannel').value=r.channel;
       $('#radioBle').checked=r.ble;$('#radioCapture').checked=r.capture;
@@ -514,12 +527,19 @@ async function pollRadio(){
     $('#radioCounts').textContent='Packets '+r.packets+' | queue drops '+r.dropped+' | SD errors '+r.logErrors+
       (r.wifiReady?'':' | WiFi unavailable')+(r.ble && !r.bleReady?' | BLE unavailable':'')+
       (r.captureFull?' | Capture limit reached':'')+(r.detail?' | '+r.detail:'');
-    if(!$('#wardrive').hidden){
+    $('#detectorRadioHealth').textContent='Flock-You scanning | '+r.mode+' | channel '+r.channel+
+      ' | radio events '+(r.events||0)+(r.wifiReady?'':' | WiFi unavailable')+
+      (r.ble && r.bleReady?' | BLE scanning':' | BLE off / unavailable');
+    if(!$('#wardrive').hidden || !$('#detector').hidden){
       const devices=await (await fetch('/api/radio/devices',{cache:'no-store'})).json();
-      $('#radioRows').innerHTML=devices.sort((a,b)=>b.tier-a.tier||a.ageMs-b.ageMs).slice(0,64).map(d=>
+      const sorted=devices.sort((a,b)=>(b.alpr&&b.tier>=2?1:0)-(a.alpr&&a.tier>=2?1:0)||b.tier-a.tier||a.ageMs-b.ageMs);
+      const render=d=>
         '<tr><td>'+escapeHtml(d.mac)+'<br><span class="dim">'+escapeHtml(d.protocol+' '+(d.name||d.droneId||''))+
         '</span></td><td>'+escapeHtml(d.category||'Advertisement')+'<br><span class="dim">'+escapeHtml(d.method)+
-        '</span></td><td>'+d.rssi+' dBm</td><td>'+fmt(d.ageMs/1000,1)+'s</td></tr>').join('');
+        ' (tier '+escapeHtml(d.tier)+')</span></td><td>'+escapeHtml(d.rssi)+' dBm</td><td>'+fmt(d.ageMs/1000,1)+'s</td></tr>';
+      $('#radioRows').innerHTML=sorted.slice(0,64).map(render).join('');
+      $('#detectorRadioRows').innerHTML=sorted.filter(d=>d.tier>0).slice(0,8).map(render).join('')||
+        '<tr><td colspan="4" class="dim">No matching radio devices yet</td></tr>';
     }
   }catch(e){}finally{radioBusy=false;}
 }

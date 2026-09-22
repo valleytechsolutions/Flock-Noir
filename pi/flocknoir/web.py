@@ -103,6 +103,7 @@ def create_app(ctx):
             "confidence": round(d.confidence, 3), "fps": round(cam.fps, 1),
             "sd": log.ready, "logged": log.count, "logErrors": log.errors,
             "version": __version__, "cameraReady": cam.ok,
+            "radioAlert": ctx.radio.alert(), "radioEvents": ctx.radio.events,
             "fix": bool(fix.get("valid")), "buzzer": buz.enabled,
             "wd": wd.enabled, "wdScan": wd.scanning, "wdLogged": wd.logged,
             "wdTotal": wd.last_total, "wdNew": wd.new_last,

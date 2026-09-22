@@ -31,7 +31,7 @@ Valleytech Custom Solutions | @valleytechsolutions | by Your Pal Kal
 > **A positive alert is a hint, not proof.** Many things flash in the near-infrared: other
 > security cameras, motion-sensor illuminators, some LED and traffic hardware, IR remotes,
 > even sunlight off a modulated source. The onboard camera also samples far too slowly
-> (about 30 to 50 fps) to prove a 20 ms pulse.
+> (about 25 fps on the XIAO) to prove a 20 ms pulse.
 >
 > **You must visually confirm an actual camera before drawing any conclusion.** Do not treat
 > this device as authoritative, do not act on its output alone, and do not present its
@@ -51,8 +51,14 @@ capture, and drone Remote ID. OPT101 pulse timing runs alongside wardriving;
 events record their source and supporting evidence. The original UI design and
 four tabs remain. See [features, limits and operation](docs/RADIO.md).
 
-**XIAO v0.4.1** fixes Bluetooth startup and camera/radio contention, with a
-hardware-verified flash and USB health checks. Download the board-specific
+**Version 0.4.2** brings Flock-You candidates to the main Detector banner and
+device table, adds the missing serial/DFU hints, Flipper Zero and WiFi Pineapple
+rules, and plays a Mario phrase for new ALPR/Flock, Axon, Meta and tool-device
+encounters. All these rules are on by default, independent of the IR toggle.
+Repeated packets are quiet; events still log their method, tier, GPS validity
+and optical evidence. The XIAO camera now captures 640×480 at about 25 fps for
+analysis, with a sharper sensor-JPEG preview and smooth browser scaling.
+Download the board-specific
 binary and checksum from [Releases](https://github.com/valleytechsolutions/Flock-Noir/releases).
 
 Thanks to **[Colonel Panic](https://colonelpanic.tech/)** and
@@ -102,7 +108,7 @@ temporal signature, plus the near-IR band, is what Flock Noir keys on.
 **The method.** The OV2640 is a good spatial sensor but a poor temporal one for a 10 Hz
 pulse, so the firmware works in the time domain:
 
-1. The camera runs grayscale at a small frame size to maximize frame rate, with
+1. The XIAO captures VGA JPEG and extracts an 80×60 grid of block-average brightness, with
    auto-exposure, gain, and white balance forced off so the pulsing is not corrected away.
    This is the single most important setting.
 2. Each frame yields one brightness sample (the brightest pixel), a saturated-blob size,
@@ -114,9 +120,9 @@ pulse, so the firmware works in the time domain:
 
 **The limits, and why visual confirmation is mandatory:**
 
-- At about 40 fps you get only around 4 frames per 100 ms cycle, so a 20 ms pulse lands in
-  roughly one frame. The firmware can reliably flag a 10 Hz periodicity and an approximate
-  duty, but it cannot reconstruct the exact 20/80 waveform from the camera alone.
+- At about 25 fps you get only 2.5 frames per 100 ms cycle. A 20 ms pulse can
+  fall between frames. Camera timing is approximate and can miss or alias pulses;
+  it cannot reconstruct the exact 20/80 waveform. Use OPT101 for pulse timing.
 - The IR-cut filter in a stock lens heavily attenuates 850 nm. Detection is far more
   reliable with an IR-filter-removed lens (see [HARDWARE.md](HARDWARE.md)).
 - Other IR emitters can produce a similar pattern. This tool narrows down where to look;
@@ -133,7 +139,7 @@ sensor is wired. It builds on research from [Noflock/Flock-IR-Detection](https:/
 ## Hardware targets
 
 Flock Noir has XIAO and Raspberry Pi targets that share the web UI
-(`web/index.html`) and native pulse/radio parsers. Both have 0.4.1 detection,
+(`web/index.html`) and native pulse/radio parsers. Both have 0.4.2 detection,
 watchlists, evidence logs and capture downloads. The **Pi Zero 2 W** uses an
 MCP3008 for OPT101 input and a dedicated monitor-capable USB WiFi adapter for
 passive packet capture; onboard WiFi supports surveys and the hotspot, and

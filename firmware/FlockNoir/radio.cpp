@@ -17,6 +17,9 @@ static std::atomic<bool> bleReady{false},bleScanning{false},bleBusy{false};
 static std::atomic<bool> bleFault{false};
 static std::atomic<bool> captureAll{false},customWatch{false};
 static constexpr uint32_t CAPTURE_LIMIT=16*1024*1024;
+static bool opticalNearby(uint32_t when,uint32_t optical) {
+  return optical && min(uint32_t(when-optical),uint32_t(optical-when))<=RADIO_CORRELATE_MS;
+}
 String jsonQuote(const String &s) {
   String out="\"";
   for(size_t i=0;i<s.length();++i) {
@@ -174,10 +177,18 @@ void Radio::observe(const RadioObservation &o,const uint8_t *mac,const char *nam
     if(!candidate.used || millis()-candidate.seen>millis()-oldest->seen)oldest=&candidate;
   }
   if(!d) {d=oldest;*d=Device();d->used=true;d->ble=o.kind;memcpy(d->mac,mac,6);}
-  bool newEvidence=match.tier>d->tier;
+  bool corroborated=match.alpr && match.tier>=2 && (ir || camera);
+  bool opticalUpgrade=corroborated && (!d->corroborated || o.ms-d->seen>=60000);
+  bool newEvidence=match.tier>d->tier || opticalUpgrade;
+  if(o.ms-d->seen>=60000)d->corroborated=false;
+  if(corroborated)d->corroborated=true;
   d->seen=o.ms;d->rssi=o.rssi;++d->count;
   if(*name)strlcpy(d->name,name,sizeof(d->name));
-  if(match.tier>=d->tier) {d->tier=match.tier;d->alpr=match.alpr;strlcpy(d->category,match.category,sizeof(d->category));strlcpy(d->method,match.method,sizeof(d->method));}
+  if(match.tier && (match.tier>=d->tier || o.ms-d->matched>8000)) {d->matched=o.ms;d->tier=match.tier;d->alpr=match.alpr;strlcpy(d->category,match.category,sizeof(d->category));strlcpy(d->method,match.method,sizeof(d->method));}
+  if(RadioProtocol::attention(match)) {
+    bool fresh=d->encounter.observe(match.tier,o.ms);
+    if((fresh || opticalUpgrade) && !muted && buzzer.enabled())_alertGate.request(o.ms);
+  }
   if(drone.types) {
     if(*drone.id)strlcpy(d->drone.id,drone.id,sizeof(d->drone.id));
     if(*drone.operatorId)strlcpy(d->drone.operatorId,drone.operatorId,sizeof(d->drone.operatorId));
@@ -189,10 +200,12 @@ void Radio::observe(const RadioObservation &o,const uint8_t *mac,const char *nam
   if(match.alpr && match.tier>=2)_lastAlpr=o.ms;
   if(!match.tier || (!newEvidence && d->logged && o.ms-d->logged<10000))return;
   d->logged=o.ms;
+  ++_events;
   String row="{\"schema\":1,\"time\":"+jsonQuote(iso)+",\"uptime_ms\":"+String(o.ms)+
     ",\"protocol\":"+jsonQuote(o.kind?"ble":"wifi")+",\"mac\":"+jsonQuote(macString(mac))+
     ",\"name\":"+jsonQuote(d->name)+",\"category\":"+jsonQuote(match.category)+",\"method\":"+jsonQuote(match.method)+
     ",\"tier\":"+String(match.tier)+",\"rssi\":"+String(o.rssi)+",\"channel\":"+String(o.channel)+
+    ",\"alpr\":"+(match.alpr?"true":"false")+",\"assessment\":"+jsonQuote(RadioProtocol::assessment(match,ir,camera))+
     ",\"gps_valid\":"+(fix?"true":"false")+",\"lat\":"+jsonNumber(fix?lat:NAN)+",\"lon\":"+jsonNumber(fix?lon:NAN)+
     ",\"ir_timing_match\":"+(ir?"true":"false")+",\"camera_pattern\":"+(camera?"true":"false")+
     ",\"evidence\":"+jsonQuote(ir && match.alpr && match.tier>=2 ? "ir_radio_nearby":"radio_candidate")+
@@ -202,8 +215,8 @@ void Radio::observe(const RadioObservation &o,const uint8_t *mac,const char *nam
     ",\"heading_deg\":"+jsonNumber(d->drone.heading,1)+",\"pilot_lat\":"+jsonNumber(d->drone.pilotLat)+
     ",\"pilot_lon\":"+jsonNumber(d->drone.pilotLon)+",\"odid_types\":"+String(d->drone.types)+"}";
   if(_sd) {File f=SD.open(_logPath,FILE_APPEND);if(!f || f.println(row)!=row.length()+2)++_logErrors;}
-  if(Serial && Serial.availableForWrite()>int(row.length()+2))Serial.println(row);
-  if(newEvidence && match.tier>=2 && !muted && !buzzer.isPlaying())buzzer.playAlert();
+  extern bool g_serialReplyActive;
+  if(!g_serialReplyActive && Serial && Serial.availableForWrite()>int(row.length()+2))Serial.println(row);
 }
 void Radio::process(const RadioObservation &o,bool fix,double lat,double lon,double alt,const char *iso,bool ir,bool camera,bool muted) {
   capture(o);
@@ -211,6 +224,7 @@ void Radio::process(const RadioObservation &o,bool fix,double lat,double lon,dou
   RadioProtocol::Drone drone;
   if(o.kind) {
     auto a=RadioProtocol::advert(o.data,o.length);
+    if(a.malformed)return;
     auto match=RadioProtocol::bleMatch(a,o.mac,o.addressType==BLE_ADDR_PUBLIC);
     if(RadioProtocol::drone(a.remote,a.remoteLen,drone))match={"Drone Remote ID","ble_remote_id",3,false};
     if(!match.tier)match=watchMatch(o.mac,a.name,&a);
@@ -229,21 +243,20 @@ void Radio::process(const RadioObservation &o,bool fix,double lat,double lon,dou
   for(int i=0;i<3;++i) {
     if(i==2 && (o.data[0]&0x0c)!=0)continue;
     const uint8_t *mac=o.data+offsets[i];if(mac[0]&1)continue;
+    // The transmitter is often also the BSSID. Keep its stronger evidence once.
+    if(i>0 && !memcmp(mac,o.data+offsets[0],6))continue;
+    if(i>1 && !memcmp(mac,o.data+offsets[1],6))continue;
     RadioProtocol::Match m;
     if(i==0 && remote)m={"Drone Remote ID","wifi_remote_id",3,false};
-    else if(RadioProtocol::flockPrefix(mac)) {
-      m={"Flock candidate",i==0?"oui_addr2":(i==1?"oui_addr1":"oui_addr3"),uint8_t(i==0?2:1),true};
-      if(i==0 && (o.data[0]&0xfc)==0x40 && w.wildcard)m={"Flock candidate",w.fingerprint?"wildcard_ie":"wildcard_probe",uint8_t(w.fingerprint?4:3),true};
-    } else if(i==0) {
-      const char *v=RadioProtocol::vendor(mac);if(*v)m={v,"oui_addr2",1,false};
-      if(RadioProtocol::contains(w.ssid,"flock") || RadioProtocol::contains(w.ssid,"penguin"))m={"Flock candidate","ssid",2,true};
-    }
+    else m=RadioProtocol::wifiMatch(w,mac,i,(o.data[0]&0xfc)==0x40);
     if(!m.tier)m=watchMatch(mac,w.ssid,nullptr);
     if(m.tier || (i==0 && _target==macString(mac))) observe(o,mac,w.ssid,m,drone,fix,lat,lon,iso,ir,camera,muted);
   }
 }
 void Radio::update(bool fix,double lat,double lon,double alt,const char *iso,bool ir,bool camera,bool muted) {
   uint32_t now=millis();
+  if(ir)_irAt=now;
+  if(camera)_cameraAt=now;
   if(!digitalRead(RADIO_BOOT_PIN)) {
     if(!_bootPressed)_bootPressed=now;
     if(_bootPressed!=UINT32_MAX && now-_bootPressed>=1500) {
@@ -283,7 +296,8 @@ void Radio::update(bool fix,double lat,double lon,double alt,const char *iso,boo
   _bleReady=bleReady;_bleScanning=bleScanning;
   RadioObservation o;
   for(int i=0;_queue && i<8 && xQueueReceive(_queue,&o,0)==pdTRUE;++i)
-    process(o,fix,lat,lon,alt,iso,ir,camera,muted);
+    process(o,fix,lat,lon,alt,iso,opticalNearby(o.ms,_irAt),opticalNearby(o.ms,_cameraAt),muted);
+  if(_alertGate.take(millis(),muted,buzzer.enabled(),buzzer.isPlaying())) {buzzer.playDeviceAlert();++_audibleAlerts;}
   for(const auto &d:_devices) if(d.used && _target==macString(d.mac) && now-d.seen<2500 &&
     strcmp(d.method,"oui_addr1") && strcmp(d.method,"oui_addr3")) {
     uint32_t gap=constrain((-d.rssi-30)*25,120,2000);
@@ -291,14 +305,29 @@ void Radio::update(bool fix,double lat,double lon,double alt,const char *iso,boo
   }
 }
 bool Radio::recentAlpr(uint32_t now) const {return _lastAlpr && now-_lastAlpr<=RADIO_CORRELATE_MS;}
-void Radio::clearLive() {for(auto &d:_devices)d=Device();_lastAlpr=0;}
+void Radio::clearLive() {for(auto &d:_devices)d=Device();_lastAlpr=0;_alertGate.pending=false;}
+String Radio::alertJson() const {
+  const Device *best=nullptr;int score=0;uint32_t now=millis();
+  for(const auto &d:_devices) if(d.used && now-d.matched<=8000) {
+    int p=RadioProtocol::priority({d.category,d.method,d.tier,d.alpr});
+    if(p>score || (p && p==score && best && now-d.matched<now-best->matched)) {best=&d;score=p;}
+  }
+  if(!best)return "null";
+  bool ir=opticalNearby(best->matched,_irAt),camera=opticalNearby(best->matched,_cameraAt);
+  return "{\"category\":"+jsonQuote(best->category)+",\"method\":"+jsonQuote(best->method)+
+    ",\"assessment\":"+jsonQuote(RadioProtocol::assessment({best->category,best->method,best->tier,best->alpr},ir,camera))+
+    ",\"ir_timing_match\":"+(ir?"true":"false")+",\"camera_pattern\":"+(camera?"true":"false")+
+    ",\"tier\":"+String(best->tier)+",\"alpr\":"+(best->alpr?"true":"false")+
+    ",\"mac\":"+jsonQuote(macString(best->mac))+",\"rssi\":"+String(best->rssi)+
+    ",\"ageMs\":"+String(now-best->matched)+"}";
+}
 String Radio::rowsJson() const {
   String s="[";bool first=true;
   for(const auto &d:_devices) if(d.used) {
     if(!first)s+=',';first=false;
     s+="{\"mac\":"+jsonQuote(macString(d.mac))+",\"protocol\":"+jsonQuote(d.ble?"BLE":"WiFi")+
       ",\"name\":"+jsonQuote(d.name)+",\"category\":"+jsonQuote(d.category)+",\"method\":"+jsonQuote(d.method)+
-      ",\"tier\":"+String(d.tier)+",\"rssi\":"+String(d.rssi)+",\"ageMs\":"+String(millis()-d.seen)+
+      ",\"tier\":"+String(d.tier)+",\"alpr\":"+(d.alpr?"true":"false")+",\"rssi\":"+String(d.rssi)+",\"ageMs\":"+String(millis()-d.seen)+
       ",\"count\":"+String(d.count)+",\"droneId\":"+jsonQuote(d.drone.id)+
       ",\"droneLat\":"+jsonNumber(d.drone.lat)+",\"droneLon\":"+jsonNumber(d.drone.lon)+"}";
   }
@@ -312,5 +341,6 @@ String Radio::json() const {
     ",\"dropped\":"+String(_dropped.load())+",\"logErrors\":"+String(_logErrors)+
     ",\"freeHeap\":"+String(ESP.getFreeHeap())+",\"minFreeHeap\":"+String(ESP.getMinFreeHeap())+
     ",\"captureFull\":"+(_pcapBytes>=CAPTURE_LIMIT || _bleBytes>=CAPTURE_LIMIT?"true":"false")+
+    ",\"events\":"+String(_events)+",\"audibleAlerts\":"+String(_audibleAlerts)+
     ",\"watch\":"+jsonQuote(_watch)+",\"target\":"+jsonQuote(_target)+"}";
 }

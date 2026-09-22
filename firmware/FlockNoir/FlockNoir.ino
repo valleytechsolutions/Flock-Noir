@@ -2,26 +2,18 @@
 //  FLOCK NOIR
 //  Seeed XIAO ESP32-S3 Sense  -  IR-camera-flash "wardriving" logger
 //
-//  Scans the camera's NIR view for a pulsed IR illuminator (~10 Hz, ~20% duty,
-//  850 nm -- the signature of many ALPR / "Flock" surveillance cameras). On a
-//  confident detection it: (1) raises an alert on the web UI, (2) tags the
-//  current GPS position (Quectel LC29H) and appends a row to a CSV on the SD
-//  card.
-//
-//  Subsystems: OV2640 camera | LC29H GPS (NMEA/UART) | SD (SPI) | buzzer |
-//              WiFi wardriver (WiGLE CSV) | SoftAP web UI
+//  Combines passive WiFi/BLE signatures with camera brightness patterns and
+//  optional OPT101 pulse timing. Candidates are logged with fresh GPS fixes;
+//  timing or an OUI alone cannot establish a camera's identity or wavelength.
+//  OV2640 | ATGM336H NMEA/UART | OPT101 ADC | SD | buzzer | WiGLE | web UI
 //
 //  Arduino IDE board: "XIAO_ESP32S3"  (enable PSRAM: OPI PSRAM)
 //  Libraries: esp32 core (>=3.x) + TinyGPSPlus
 //  ---------------------------------------------------------------------------
-//  v0.2 -- camera IR detector + branded UI + buzzer/RTTTL + WiFi wardriver.
-//  Two SEPARATE logs on SD:  /logs/flock_*.csv  (IR ALPR hits)
-//                            /wardrive/wigle_*.csv  (WiGLE WiFi wardrive)
-//  A dedicated 850 nm photodiode on an ADC pin is the recommended next upgrade
-//  for locking the exact 20 ms/80 ms IR timing (see README).
+//  /logs/flock_*.csv | /wardrive/wigle_*.csv | /radio/events_*.jsonl
 // =============================================================================
 #include "esp_camera.h"
-#include "img_converters.h"     // frame2jpg() for the live view
+#include "jpeg_luma.h"
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DNSServer.h>          // captive portal (iPhone can't reach a bare IP)
@@ -29,6 +21,8 @@
 #include <SPI.h>
 #include <SD.h>
 #include <TinyGPS++.h>
+#include <atomic>
+#include <freertos/queue.h>
 
 #include "config.h"
 #include "detector.h"
@@ -52,6 +46,20 @@ Detector    detector;
 
 bool     g_sdReady   = false;
 bool g_cameraReady = false;
+bool g_serialReplyActive = false;
+uint8_t *g_previewJpeg=nullptr;
+size_t g_previewLength=0;
+uint32_t g_cameraDecodeErrors=0,g_previewAt=0,g_cameraFrames=0;
+uint16_t g_cameraWidth=0,g_cameraHeight=0;
+struct CameraSample {bool ok;uint16_t level,blob,cx,cy;uint32_t stamp,decodeMs;};
+QueueHandle_t g_cameraSamples=nullptr;
+uint8_t *g_analysisJpeg=nullptr,*g_analysisLuma=nullptr;
+JpegLuma g_jpegLuma;
+std::atomic<bool> g_analysisPending{false};
+size_t g_analysisLength=0;
+uint32_t g_analysisStamp=0;
+uint32_t g_cameraAnalysisMs=0,g_analysisFrames=0,g_cameraAt=0,g_analyzedAt=0;
+float g_analysisFps=0;
 uint32_t g_logErrors = 0;
 uint32_t g_sdTotalMB = 0, g_sdFreeMB = 0;
 uint32_t g_scanned   = 1;            // scanned pixels per frame
@@ -97,7 +105,20 @@ void wigleTime(char *out, size_t n) {
 // ---------------------------------------------------------------------------
 //  Camera
 // ---------------------------------------------------------------------------
+void freeCameraBuffers() {
+  free(g_previewJpeg);free(g_analysisJpeg);free(g_analysisLuma);
+  g_previewJpeg=g_analysisJpeg=g_analysisLuma=nullptr;
+  if(g_cameraSamples){vQueueDelete(g_cameraSamples);g_cameraSamples=nullptr;}
+}
 bool initCamera() {
+  g_previewJpeg=(uint8_t*)ps_malloc(CAM_JPEG_CAPACITY);
+  g_analysisJpeg=(uint8_t*)ps_malloc(CAM_JPEG_CAPACITY);
+  g_analysisLuma=(uint8_t*)heap_caps_malloc(CAM_ANALYSIS_WIDTH*CAM_ANALYSIS_HEIGHT,MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+  g_cameraSamples=xQueueCreate(2,sizeof(CameraSample));
+  if(!g_previewJpeg || !g_analysisJpeg || !g_analysisLuma || !g_cameraSamples) {
+    freeCameraBuffers();
+    Serial.println("[CAM] PSRAM image buffers unavailable");return false;
+  }
   camera_config_t c = {};
   c.ledc_channel = LEDC_CHANNEL_0;
   c.ledc_timer   = LEDC_TIMER_0;
@@ -111,7 +132,8 @@ bool initCamera() {
   c.pin_pwdn = PWDN_GPIO_NUM;  c.pin_reset = RESET_GPIO_NUM;
   c.xclk_freq_hz = CAM_XCLK_HZ;
   c.frame_size   = CAM_FRAMESIZE;
-  c.pixel_format = PIXFORMAT_GRAYSCALE;      // 1 byte/pixel -> fast temporal scan
+  c.pixel_format = PIXFORMAT_JPEG;
+  c.jpeg_quality = CAM_JPEG_QUALITY;
   c.fb_location  = CAMERA_FB_IN_PSRAM;
   c.fb_count     = CAM_FB_COUNT;
   c.grab_mode    = CAMERA_GRAB_WHEN_EMPTY;   // take every frame, don't drop
@@ -119,6 +141,7 @@ bool initCamera() {
   esp_err_t err = esp_camera_init(&c);
   if (err != ESP_OK) {
     Serial.printf("[CAM] init failed 0x%x\n", err);
+    freeCameraBuffers();
     return false;
   }
   // DMA directly into the S3's PSRAM instead of copying DMA chunks on the
@@ -126,6 +149,7 @@ bool initCamera() {
   err = esp_camera_set_psram_mode(true);
   if (err != ESP_OK) {
     Serial.printf("[CAM] PSRAM DMA initialization failed 0x%x\n", err);
+    esp_camera_deinit();freeCameraBuffers();
     return false;
   }
 
@@ -144,33 +168,54 @@ bool initCamera() {
     controls |= s->set_brightness(s, CAM_BRIGHTNESS);
     controls |= s->set_gainceiling(s, GAINCEILING_2X);
     controls |= s->set_lenc(s, 1);            // lens correction on
-    if (controls) Serial.println("[CAM] one or more sensor controls failed");
+    if (controls) {
+      Serial.println("[CAM] one or more sensor controls failed");
+      esp_camera_deinit();freeCameraBuffers();return false;
+    }
+  } else {
+    Serial.println("[CAM] sensor unavailable");
+    esp_camera_deinit();freeCameraBuffers();return false;
   }
   return true;
 }
 
-// Scan a grayscale frame: track brightest pixel + centroid + blob size.
-void scanFrame(camera_fb_t *fb, uint16_t &level, uint16_t &blobPx,
+// Scan JPEG block-average luminance: brightest block, centroid and blob size.
+bool scanFrame(uint16_t &level, uint16_t &blobPx,
                uint16_t &cx, uint16_t &cy) {
-  const uint8_t *p = fb->buf;
-  const int W = fb->width, H = fb->height;
+  if(!g_jpegLuma.decode(g_analysisJpeg,g_analysisLength,640,480,g_analysisLuma,CAM_ANALYSIS_WIDTH*CAM_ANALYSIS_HEIGHT))return false;
+  const uint8_t *p = g_analysisLuma;
+  const int W = CAM_ANALYSIS_WIDTH, H = CAM_ANALYSIS_HEIGHT;
   const int step = CAM_PIXEL_STRIDE;
   uint16_t maxV = 0; uint32_t sumX = 0, sumY = 0, cnt = 0; uint32_t scanned = 0;
 
   for (int y = 0; y < H; y += step) {
     const uint8_t *row = p + (size_t)y * W;
     for (int x = 0; x < W; x += step) {
-      uint8_t v = row[x];
+      uint8_t v=row[x];
       if (v > maxV) maxV = v;
       if (v >= SAT_THRESHOLD) { sumX += x; sumY += y; cnt++; }
       scanned++;
     }
   }
-  g_scanned = scanned ? scanned : 1;
+  (void)scanned;
   level  = maxV;
   blobPx = (cnt > 0xFFFF) ? 0xFFFF : cnt;
-  cx = cnt ? (uint16_t)(sumX / cnt) : 0;
-  cy = cnt ? (uint16_t)(sumY / cnt) : 0;
+  cx = cnt ? (uint16_t)(sumX * 8 / cnt) : 0;
+  cy = cnt ? (uint16_t)(sumY * 8 / cnt) : 0;
+  return true;
+}
+void cameraAnalysisTask(void *) {
+  for(;;) {
+    if(g_analysisPending.load()) {
+      CameraSample sample={};
+      uint32_t started=millis();
+      sample.ok=scanFrame(sample.level,sample.blob,sample.cx,sample.cy);
+      sample.stamp=g_analysisStamp;sample.decodeMs=millis()-started;
+      xQueueSend(g_cameraSamples,&sample,0);
+      g_analysisPending=false;
+    }
+    vTaskDelay(1);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -234,7 +279,7 @@ void logHit(const char *source, float freqHz, float duty, float conf,
       f.close();
     } else ++g_logErrors;
   }
-  Serial.printf("[ALERT/%s] %s  %.6f,%.6f  %.1fHz duty=%.0f%% conf=%.2f\n",
+  if(!g_serialReplyActive) Serial.printf("[ALERT/%s] %s  %.6f,%.6f  %.1fHz duty=%.0f%% conf=%.2f\n",
                 source, iso, lat, lon, freqHz, duty*100, conf);
 }
 
@@ -265,8 +310,12 @@ String statusJson() {
   j += ",\"freq\":"      + String(d.freqHz, 2);
   j += ",\"duty\":"      + String(d.dutyCycle, 3);
   j += ",\"confidence\":"+ String(d.confidence, 3);
-  j += ",\"fps\":"       + String(g_fps, 1);
+  j += ",\"fps\":"       + String(g_analysisFps, 1);
+  j += ",\"captureFps\":" + String(g_fps, 1);
   j += ",\"cameraReady\":" + String(g_cameraReady ? "true":"false");
+  j += ",\"cameraWidth\":"+String(g_cameraWidth)+",\"cameraHeight\":"+String(g_cameraHeight);
+  j += ",\"cameraDecodeErrors\":"+String(g_cameraDecodeErrors)+",\"cameraFrames\":"+String(g_cameraFrames);
+  j += ",\"cameraAnalysisMs\":"+String(g_cameraAnalysisMs)+",\"analysisFrames\":"+String(g_analysisFrames);
   j += ",\"version\":\"" FLOCK_NOIR_VERSION "\"";
   j += ",\"sd\":"        + String(g_sdReady ? "true":"false");
   j += ",\"logged\":"    + String(g_logged);
@@ -324,6 +373,8 @@ String statusJson() {
   j += ",\"irDroppedEvents\":" + String(ir.droppedEvents);
   j += ",\"irNoise\":" + String(ir.noise,1);
   j += ",\"radioNearby\":" + String(radio.recentAlpr(millis()) ? "true":"false");
+  j += ",\"radioAlert\":" + radio.alertJson();
+  j += ",\"radioEvents\":" + String(radio.events());
   j += ",\"logErrors\":" + String(g_logErrors);
   // system / QoL
   j += ",\"muted\":"   + String(g_muted ? "true":"false");
@@ -372,21 +423,13 @@ void handleWardriveCsv() {
   f.close();
 }
 
-// Live view: JPEG-encode the current (grayscale/NIR) frame on demand.
-// The browser re-requests this a few times a second for a "video" feed, which
-// coexists with the detection loop far better than a blocking MJPEG stream.
+// Serve the latest background-encoded VGA image without blocking analysis.
 void handleFrame() {
-  camera_fb_t *fb = g_cameraReady ? esp_camera_fb_get() : nullptr;
-  if (!fb) { server.send(503, "text/plain", "no frame"); return; }
-  uint8_t *jpg = nullptr; size_t jpgLen = 0;
-  bool ok = frame2jpg(fb, 80, &jpg, &jpgLen);
-  esp_camera_fb_return(fb);
-  if (!ok || !jpg) { server.send(500, "text/plain", "jpeg encode failed"); return; }
+  if (!g_previewLength || millis()-g_previewAt>1000) {server.send(503,"text/plain","no recent frame");return;}
   server.sendHeader("Cache-Control", "no-store");
-  server.setContentLength(jpgLen);
+  server.setContentLength(g_previewLength);
   server.send(200, "image/jpeg", "");
-  server.sendContent((const char *)jpg, jpgLen);
-  free(jpg);
+  server.sendContent((const char *)g_previewJpeg, g_previewLength);
 }
 
 // Start/stop recording. POST action=start|stop, audio=0|1.
@@ -515,7 +558,12 @@ void setup() {
 
   g_cameraReady = initCamera();
   if (!g_cameraReady) Serial.println("[CAM] DISABLED (check ribbon/pins)");
+  g_scanned=CAM_ANALYSIS_WIDTH*CAM_ANALYSIS_HEIGHT;
   detector.begin(g_scanned);
+  if(g_cameraReady && xTaskCreatePinnedToCore(cameraAnalysisTask,"camera-analysis",6144,nullptr,1,nullptr,1)!=pdPASS) {
+    Serial.println("[CAM] analysis task allocation failed");g_cameraReady=false;
+    esp_camera_deinit();freeCameraBuffers();
+  }
   buzzer.begin();                    // loads tones from NVS, optional boot chirp
 
   g_sdReady = initSD();
@@ -572,7 +620,7 @@ void loop() {
 
   // GPS health heartbeat on the serial console (every 5 s)
   static uint32_t gpsDbg = 0;
-  if (millis() - gpsDbg >= 5000) {
+  if (!g_serialReplyActive && millis() - gpsDbg >= 5000) {
     gpsDbg = millis();
     Serial.printf("[GPS] chars=%lu good=%lu fail=%lu sats=%d fix=%d\n",
                   (unsigned long)gps.charsProcessed(),
@@ -585,39 +633,60 @@ void loop() {
   // 2) grab + scan one camera frame
   camera_fb_t *fb = g_cameraReady && esp_camera_available_frames() ? esp_camera_fb_get() : nullptr;
   if (fb) {
-    uint16_t level, blobPx, cx, cy;
-    scanFrame(fb, level, blobPx, cx, cy);
-    static bool detectorSized = false;
-    if (!detectorSized) { detector.begin(g_scanned); detectorSized = true; }
-    detector.feed(level, blobPx, micros());
-    recorder.addVideoFrame(fb);           // append to AVI if recording
+    bool valid=fb->format==PIXFORMAT_JPEG && fb->width==640 && fb->height==480 && fb->len<=CAM_JPEG_CAPACITY;
+    g_cameraWidth=fb->width;g_cameraHeight=fb->height;g_cameraAt=millis();
+    if(valid) {
+      memcpy(g_previewJpeg,fb->buf,fb->len);g_previewLength=fb->len;g_previewAt=millis();
+      recorder.addVideoFrame(fb);
+      if(!g_analysisPending.load()) {
+        memcpy(g_analysisJpeg,fb->buf,fb->len);g_analysisLength=fb->len;
+        g_analysisStamp=uint32_t(fb->timestamp.tv_sec*1000000ULL+fb->timestamp.tv_usec);
+        g_analysisPending=true;
+      }
+    } else {
+      ++g_cameraDecodeErrors;detector.begin(g_scanned);
+    }
     esp_camera_fb_return(fb);
 
-    g_frames++;
-    // last centroid for logging
-    static uint16_t s_cx = 0, s_cy = 0; s_cx = cx; s_cy = cy;
-
-    // 3) periodic analysis
-    static uint32_t lastAnalyze = 0;
+    g_frames++;++g_cameraFrames;
     uint32_t now = millis();
-    if (now - lastAnalyze >= ANALYZE_EVERY_MS) {
-      lastAnalyze = now;
-      DetectionResult d = detector.analyze();
-      if (d.detected && (now - g_lastAlert >= ALERT_HOLDOFF_MS)) {
-        g_lastAlert = now;
-        logDetection(d, s_cx, s_cy);
-        if (!g_muted) buzzer.playAlert();  // sound the configured alert tone
-      }
-    }
-
     // fps estimate
     if (now - g_fpsWin >= 1000) {
       g_fps = g_frames * 1000.0f / (now - g_fpsWin);
       g_frames = 0; g_fpsWin = now;
     }
   }
+  CameraSample sample;
+  while(g_cameraSamples && xQueueReceive(g_cameraSamples,&sample,0)==pdTRUE) {
+    g_cameraAnalysisMs=sample.decodeMs;
+    if(sample.ok) {
+      ++g_analysisFrames;
+      g_analyzedAt=millis();
+      static uint32_t frames=0,window=0;
+      ++frames;
+      if(g_analyzedAt-window>=1000) {
+        g_analysisFps=frames*1000.0f/(g_analyzedAt-window);frames=0;window=g_analyzedAt;
+      }
+      static uint32_t previous=0,lastAnalyze=0;
+      if(previous && sample.stamp-previous>50000)detector.begin(g_scanned);
+      previous=sample.stamp;detector.feed(sample.level,sample.blob,sample.stamp);
+      uint32_t now=millis();
+      if(now-lastAnalyze>=ANALYZE_EVERY_MS) {
+        lastAnalyze=now;auto d=detector.analyze();
+        if(d.detected && now-g_lastAlert>=ALERT_HOLDOFF_MS) {
+          g_lastAlert=now;logDetection(d,sample.cx,sample.cy);
+          if(!g_muted)buzzer.playAlert();
+        }
+      }
+    } else {
+      ++g_cameraDecodeErrors;detector.begin(g_scanned);
+    }
+  }
 
   // Drain latched IR events even if an SD download delayed the foreground loop.
+  if(!g_cameraAt || millis()-g_cameraAt>500 || !g_analyzedAt || millis()-g_analyzedAt>500) {
+    detector.begin(g_scanned);g_analysisFps=0;
+  }
   IrResult event;
   while (irSensor.popEvent(event)) {
     float conf = min(1.0f, event.validCount / 8.0f);

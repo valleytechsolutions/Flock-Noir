@@ -50,7 +50,7 @@ class PiTests(unittest.TestCase):
         self.wd = Wardriver(self.gps, start=False)
         self.cam = SimpleNamespace(detector=Detector(100), ok=True, fps=25., muted=True, jpeg=lambda: b"")
         self.buz = SimpleNamespace(enabled=True, is_playing=lambda: False, play=lambda _: None,
-                                   play_alert=lambda: None, to_json=lambda: {})
+                                   play_alert=lambda: None, play_device_alert=lambda: None, to_json=lambda: {})
         self.state = dict(muted=True, start=time.monotonic())
         self.radio = Radio(self.gps, self.ir, self.cam, self.buz, self.wd, self.state, start=False)
         rec = SimpleNamespace(active=False, audio=False, seconds=lambda: 0, frames=lambda: 0)
@@ -169,7 +169,7 @@ class PiTests(unittest.TestCase):
         self.assertEqual(row["evidence"], "ir_timing_match")
         data = self.client.get("/api/status").get_json()
         self.assertFalse(data["irEn"])
-        self.assertEqual(data["version"], "0.4.1")
+        self.assertEqual(data["version"], "0.4.2")
         self.assertNotIn("NaN", self.client.get("/api/status").text)
 
     def test_radio_api_and_real_capture_format(self):
@@ -226,6 +226,117 @@ class PiTests(unittest.TestCase):
             self.assertEqual(detector.analyze().detected, expected)
             detector._fed_at -= 1
             self.assertFalse(detector.last().detected)
+
+    def test_requested_devices_log_and_mario_alert_without_ir(self):
+        cases = ((ad_name("Penguin-1234567890"), "Flock battery"),
+                 (ad_name("1234567890"), "Flock battery"),
+                 (ad_name("DfuTarg"), "Flock DFU"),
+                 (bytes.fromhex("03ff4d03"), "Axon"),
+                 (bytes.fromhex("03ff530d03035ffd"), "Meta"),
+                 (bytes.fromhex("0303823003190086"), "Flipper"))
+        self.state["muted"] = False
+        for i, (data, category) in enumerate(cases):
+            with self.subTest(category=category), patch.object(self.buz, "play_device_alert") as tone:
+                observation = dict(protocol="ble", data=data, address=bytes([2,0,0,0,0,i]),
+                                   address_type=1, event_type=0, rssi=-45, channel=0, timestamp=time.monotonic())
+                self.radio.last_alert = None
+                self.radio.process(observation)
+                self.radio._play_pending()
+                tone.assert_called_once()
+                self.radio.process(observation)
+                self.radio._play_pending()
+                tone.assert_called_once()  # duplicate packets do not replay sound
+                record = json.loads(self.radio.paths["log"].read_text().splitlines()[-1])
+                self.assertIn(category, record["category"])
+                self.assertFalse(record["ir_timing_match"])
+                self.assertIsNone(record["lat"])
+        self.assertIsNotNone(self.client.get("/api/status").get_json()["radioAlert"])
+        self.assertEqual(self.client.get("/api/status").get_json()["radioEvents"], len(cases))
+        self.assertFalse(self.ir.enabled)
+
+    def test_alert_busy_cooldown_mute_and_reappearance(self):
+        self.state["muted"] = False
+        observation = dict(protocol="ble", data=ad_name("Flipper Test"), address=bytes(6),
+                           address_type=1, event_type=0, rssi=-45, channel=0, timestamp=time.monotonic())
+        with patch.object(self.buz, "play_device_alert") as tone:
+            self.radio.process(observation)
+            with patch.object(self.buz, "is_playing", return_value=True):
+                self.radio._play_pending()
+                tone.assert_not_called()
+            self.radio._play_pending()
+            tone.assert_called_once()
+            self.radio.pending_alert = time.monotonic()
+            self.radio._play_pending()
+            tone.assert_called_once()
+            self.state["muted"] = True
+            self.radio._play_pending()
+            self.assertIsNone(self.radio.pending_alert)
+            self.state["muted"] = False
+            self.radio.last_alert = None
+            next(iter(self.radio.devices.values()))["attention_seen"] -= 61
+            self.radio.process(observation)
+            self.radio._play_pending()
+            self.assertEqual(tone.call_count, 2)
+            for d in self.radio.devices.values():
+                d["matched"] -= 9
+            self.assertIsNone(self.radio.alert())
+
+    def test_pineapple_ap_not_client_or_ordinary_ssid(self):
+        address = bytes.fromhex("101112010203")
+        self.assertFalse(native.decode_survey(address, "Flock Noir")["rows"][0]["tier"])
+        for ssid in ("Pineapple_1337", "Pineapple_Management", "WiFi Pineapple"):
+            result = native.decode_survey(address, ssid)["rows"][0]
+            self.assertIn("Pineapple", result["category"])
+            self.assertFalse(result["alpr"])
+        for ssid in ("Open", "Pineapple Pizza", "Pineapple_ZZZZ"):
+            self.assertFalse(native.decode_survey(address, ssid)["rows"][0]["tier"])
+
+    def test_camera_assessment_uses_radio_and_fresh_optical_evidence(self):
+        self.assertEqual(native.assessment(True,2),"possible_camera")
+        self.assertEqual(native.assessment(True,4),"camera_signature_match")
+        self.assertEqual(native.assessment(True,2,True),"corroborated_camera_candidate")
+        self.assertEqual(native.assessment(True,1,True),"possible_camera")
+        self.assertEqual(native.assessment(False,3,True),"device_candidate")
+        when=time.monotonic()
+        self.radio.ir_at=when-2
+        self.radio.process(dict(protocol="wifi",data=probe(),rssi=-40,channel=1,timestamp=when))
+        record=json.loads(self.radio.paths["log"].read_text().splitlines()[-1])
+        self.assertEqual(record["assessment"],"corroborated_camera_candidate")
+        self.assertTrue(record["ir_timing_match"])
+        self.radio.ir_at=when-4
+        self.assertEqual(self.radio.alert()["assessment"],"camera_signature_match")
+
+    def test_optical_upgrade_is_logged_inside_duplicate_window(self):
+        self.state["muted"] = False
+        when = time.monotonic()
+        observation = dict(protocol="wifi",data=probe(),rssi=-40,channel=1,timestamp=when)
+        self.radio.process(observation)
+        self.radio.pending_alert = None
+        self.radio.ir_at = when
+        self.radio.process(dict(observation,timestamp=when+.1))
+        records = [json.loads(line) for line in self.radio.paths["log"].read_text().splitlines()]
+        self.assertEqual(len(records),2)
+        self.assertEqual(records[0]["assessment"],"camera_signature_match")
+        self.assertEqual(records[1]["assessment"],"corroborated_camera_candidate")
+        self.assertIsNotNone(self.radio.pending_alert)
+        self.radio.process(dict(observation,timestamp=when+.2))
+        self.assertEqual(self.radio.events,2)
+        self.radio.ir_at = None
+        self.radio.process(dict(observation,timestamp=when+.3))
+        self.radio.ir_at = when
+        self.radio.process(dict(observation,timestamp=when+.4))
+        self.assertEqual(self.radio.events,2)  # intermittent light does not spam upgrades
+
+    def test_pineapple_candidate_logs_and_alerts(self):
+        self.state["muted"] = False
+        ap = dict(bssid="10:11:12:01:02:03",ssid="Pineapple_1337",rssi=-45,chan=1)
+        with patch.object(self.buz,"play_device_alert") as tone:
+            self.radio.process(dict(protocol="wifi",data=b"",survey=ap,rssi=-45,channel=1,timestamp=time.monotonic()))
+            self.radio._play_pending()
+            tone.assert_called_once()
+        record = json.loads(self.radio.paths["log"].read_text().splitlines()[-1])
+        self.assertEqual(record["assessment"],"device_candidate")
+        self.assertIn("Pineapple",record["category"])
 
 
 if __name__ == "__main__":

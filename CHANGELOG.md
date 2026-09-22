@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.2 - Device alerts and clearer camera view
+
+- Verify the complete 34-prefix Flock-You OUI set; add serial/DFU hints and
+  Flipper Zero / WiFi Pineapple candidate rules alongside Axon and Meta.
+- Surface radio candidates in the original Detector tab; log assessments and
+  new optical corroboration immediately, including when OPT101 is disabled.
+- Play the Mario opening phrase for new device encounters with mute, cooldown
+  and duplicate suppression on XIAO and Pi.
+- Replace the enlarged low-resolution camera preview with sensor JPEG capture
+  and smooth scaling; keep optical analysis and radio processing separate.
+- Update releases, diagnostics, provenance and regression coverage for both targets.
+
+## 0.4.1 - XIAO startup and Pi integration
+
+- Fix XIAO BLE startup memory, ADC initialization and camera/radio coexistence.
+- Preserve the ATGM336H wiring and baud rate; leave unwired OPT101 detection off.
+- Port the shared pulse/radio parsers to Pi Zero 2 W and publish a Pi image.
+
 ## 0.4 - OPT101 and unified radio integration
 
 - XIAO-specific passive WiFi/BLE candidates, watchlists, target RSSI, Remote ID and SD captures.

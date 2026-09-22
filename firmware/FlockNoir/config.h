@@ -5,7 +5,7 @@
 // =============================================================================
 #pragma once
 
-#define FLOCK_NOIR_VERSION "0.4.1"
+#define FLOCK_NOIR_VERSION "0.4.2"
 
 // -----------------------------------------------------------------------------
 //  WiFi SoftAP  (device makes its own network -- no internet needed in field)
@@ -59,6 +59,7 @@
 #define BUZZER_LEDC_CHANNEL 5        // keep away from camera's channel 0
 #define BUZZER_MAX_TONES   5         // configurable tone slots
 #define BUZZER_STARTUP_BEEP 1        // 1 = chirp once on boot to prove wiring
+#define DEVICE_ALERT_RTTTL "Mario:d=4,o=5,b=200:16e6,16e6,32p,8e6,16c6,8e6,8g6"
 // Bump this when the built-in default tones change, to re-seed them into NVS on
 // devices that already saved the old set. (Resets tones to defaults.)
 #define BUZZER_DEFAULTS_VERSION 2
@@ -100,13 +101,15 @@
 
 // -----------------------------------------------------------------------------
 //  Camera / sensor tuning  (the most important knobs for detection)
-//  We run GRAYSCALE at a small frame size to maximize frame rate, and we FORCE
-//  a fixed exposure/gain so the pulsing IR source is not auto-corrected away.
+// Sensor JPEG capture; scaled brightness analysis runs in a separate task.
+// Fixed exposure/gain keeps the pulsing IR source from being auto-corrected away.
 // -----------------------------------------------------------------------------
 #define CAM_XCLK_HZ        20000000
-// Frame size: FRAMESIZE_QQVGA (160x120) is a good speed/detail balance.
-// FRAMESIZE_96X96 pushes fps higher if you need more temporal resolution.
-#define CAM_FRAMESIZE      FRAMESIZE_QQVGA
+#define CAM_FRAMESIZE      FRAMESIZE_VGA
+#define CAM_JPEG_QUALITY   12        // OV2640 JPEG: lower is better quality
+#define CAM_ANALYSIS_WIDTH 80
+#define CAM_ANALYSIS_HEIGHT 60
+#define CAM_JPEG_CAPACITY  131072    // bounded PSRAM preview cache
 // Continuous frames need direct PSRAM DMA (enabled in initCamera) to coexist
 // with the radios. A single buffer halves the camera's temporal sampling rate.
 #define CAM_FB_COUNT       2
@@ -117,7 +120,7 @@
 #define CAM_AEC_VALUE      150       // 0..1200, starting point for IR-cut-free OV2640
 #define CAM_AGC_GAIN       2         // 0..30 fixed gain; tune under actual lighting
 #define CAM_BRIGHTNESS     0         // -2..2
-#define CAM_PIXEL_STRIDE   1         // scan every Nth pixel (1=all, 2=faster)
+#define CAM_PIXEL_STRIDE   1         // scan every pixel in the scaled analysis image
 
 // -----------------------------------------------------------------------------
 //  Detection SENSITIVITY

@@ -17,6 +17,7 @@ public:
   void play(const String &rtttl);     // start any RTTTL string (non-blocking)
   void playSlot(int idx);             // play tone slot idx
   void playAlert();                   // play the configured alert slot
+  void playDeviceAlert();             // Mario phrase for radio device candidates
   void stop();
   bool isPlaying() const { return _playing; }
 

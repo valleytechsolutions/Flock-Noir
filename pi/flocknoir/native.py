@@ -16,6 +16,7 @@ def library():
             ("fn_decode_wifi", [ct.c_char_p, ct.c_size_t, ct.c_void_p, ct.c_size_t], ct.c_int),
             ("fn_decode_ble", [ct.c_char_p, ct.c_size_t, ct.c_char_p, ct.c_int, ct.c_void_p, ct.c_size_t], ct.c_int),
             ("fn_pulse_new", [], ct.c_void_p),
+            ("fn_assessment", [ct.c_int, ct.c_int, ct.c_int, ct.c_int], ct.c_char_p),
             ("fn_decode_survey", [ct.c_char_p, ct.c_char_p, ct.c_void_p, ct.c_size_t], ct.c_int),
             ("fn_pulse_free", [ct.c_void_p], None),
             ("fn_pulse_reset", [ct.c_void_p], None),
@@ -48,6 +49,10 @@ def decode_survey(address, ssid):
     out = ct.create_string_buffer(8192)
     size = library().fn_decode_survey(bytes(address), ssid.encode("ascii", "replace")[:128], out, len(out))
     return json.loads(out.value) if size >= 0 else {"valid": False}
+
+
+def assessment(alpr, tier, ir=False, camera=False):
+    return library().fn_assessment(bool(alpr), tier, bool(ir), bool(camera)).decode("ascii")
 
 
 class Pulse:

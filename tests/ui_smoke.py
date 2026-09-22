@@ -46,6 +46,17 @@ with sync_playwright() as p:
     page.wait_for_function("document.querySelector('#bannerTxt').textContent.includes('IR + RADIO NEARBY')")
     assert page.locator('.tab').count() == 4
     assert page.locator('#rows script').count() == 0
+    page.wait_for_function("document.querySelector('#detectorRadioRows').textContent.includes('B4:1E:52')")
+    assert page.locator('#detectorRadioRows img').count() == 0
+    status.update(irDet=False, radioEvents=3,
+                  radioAlert=dict(category='Axon candidate',method='company_or_service',tier=2,alpr=False))
+    page.evaluate('tick()')
+    page.wait_for_function("document.querySelector('#bannerTxt').textContent.includes('AXON CANDIDATE')")
+    assert page.locator('#count').text_content() == '4'
+    for width in (1100,390):
+        page.set_viewport_size({'width':width,'height':1000})
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+1')
+    status.update(irDet=True, radioAlert=None)
     page.locator('[data-tab=wardrive]').click()
     page.wait_for_function("document.querySelector('#radioRows').textContent.includes('B4:1E:52')")
     assert page.locator('#radioRows img').count() == 0

@@ -26,6 +26,16 @@ inline bool contains(const char *s, const char *part) {
   }
   return false;
 }
+inline bool starts(const char *s,const char *prefix) {
+  while(*prefix) if(tolower((unsigned char)*s++)!=tolower((unsigned char)*prefix++))return false;
+  return true;
+}
+inline bool equal(const char *s,const char *other) {return strlen(s)==strlen(other) && starts(s,other);}
+inline bool serialName(const char *s) {
+  if(strlen(s)!=10)return false;
+  for(size_t i=0;i<10;++i)if(!isdigit((unsigned char)s[i]))return false;
+  return true;
+}
 inline uint32_t prefix(const uint8_t *m) { return uint32_t(m[0]) << 16 | uint32_t(m[1]) << 8 | m[2]; }
 inline bool flockPrefix(const uint8_t *m) {
   static const uint32_t prefixes[] = {
@@ -56,11 +66,22 @@ inline const char *vendor(const uint8_t *m) {
   return "";
 }
 struct Match { const char *category = ""; const char *method = ""; uint8_t tier = 0; bool alpr = false; };
+inline bool attention(const Match &m) {
+  return m.tier && (m.alpr || m.tier>=2 || contains(m.category,"Axon") || contains(m.category,"Flipper"));
+}
+inline int priority(const Match &m) {return !attention(m)?0:(m.alpr && m.tier>=2?20:0)+m.tier;}
+inline const char *assessment(const Match &m,bool ir,bool camera) {
+  if(!m.alpr)return "device_candidate";
+  if(m.tier>=2 && (ir || camera))return "corroborated_camera_candidate";
+  if(m.tier>=3)return "camera_signature_match";
+  return "possible_camera";
+}
 struct Advert {
   char name[64] = {};
   uint16_t company[8] = {}, services[32] = {};
   size_t companies = 0, serviceCount = 0;
-  bool flockService = false, malformed = false;
+  bool flockService = false, nordicDfu = false, malformed = false;
+  uint16_t appearance = 0;
   const uint8_t *remote = nullptr; size_t remoteLen = 0;
   bool hasCompany(uint16_t v) const { for (size_t i=0;i<companies;++i) if(company[i]==v)return true; return false; }
   bool hasService(uint16_t v) const { for (size_t i=0;i<serviceCount;++i) if(services[i]==v)return true; return false; }
@@ -68,19 +89,28 @@ struct Advert {
 inline Advert advert(const uint8_t *p, size_t n) {
   Advert a;
   const uint8_t flockUuid[] = {0x6f,0x2e,0x17,0xdf,0x14,0x18,0xe5,0x9f,0xa8,0x46,0x32,0x95,0x38,0xbb,0xcc,0xe8};
+  const uint8_t dfuUuid[] = {0x23,0xd1,0xbc,0xea,0x5f,0x78,0x23,0x15,0xde,0xef,0x12,0x12,0x30,0x15,0,0};
   for (size_t pos=0;pos<n;) {
     size_t len=p[pos++]; if (!len) break;
     if(len>n-pos) { a.malformed=true; break; }
     uint8_t type=p[pos]; const uint8_t *v=p+pos+1; size_t size=len-1;
     if(type==8 || type==9) label(a.name,sizeof(a.name),v,size);
+    if(type==0x19 && size==2)a.appearance=u16(v);
     if(type==0xff && size>=2 && a.companies<8) a.company[a.companies++]=u16(v);
     if(type==2 || type==3 || type==0x16) {
       size_t count=type==0x16 ? (size>=2 ? 2 : 0) : size;
       for(size_t i=0;i+1<count && a.serviceCount<32;i+=2) a.services[a.serviceCount++]=u16(v+i);
       if(type==0x16 && size>=4 && u16(v)==0xfffa && v[2]==0x0d) { a.remote=v+4; a.remoteLen=size-4; }
     }
-    if(type==6 || type==7) for(size_t i=0;i+16<=size;i+=16)
-      if(!memcmp(v+i,flockUuid,16)) a.flockService=true;
+    if(type==6 || type==7 || type==0x21) {
+      if((type!=0x21 && size%16) || (type==0x21 && size<16))a.malformed=true;
+      size_t end=type==0x21?16:size;
+      for(size_t i=0;i+16<=end && i+16<=size;i+=16) {
+        if(!memcmp(v+i,flockUuid,16))a.flockService=true;
+        if(!memcmp(v+i,dfuUuid,16))a.nordicDfu=true;
+      }
+    }
+    if((type==2 || type==3) && size%2)a.malformed=true;
     pos+=len;
   }
   return a;
@@ -90,12 +120,21 @@ inline Match bleMatch(const Advert &a, const uint8_t *mac, bool publicAddress) {
   if((a.hasCompany(0x0d53) && a.hasService(0xfd5f)) || contains(a.name,"ray-ban") ||
      contains(a.name,"wayfarer") || contains(a.name,"oakley meta")) return {"Meta glasses","meta_composite",3,false};
   if(a.flockService) return {"Flock accessory","service_uuid128",3,true};
+  if(starts(a.name,"penguin-") && serialName(a.name+8))return {"Flock battery candidate","penguin_serial",2,true};
   if(contains(a.name,"penguin-") || contains(a.name,"fs ext battery") || contains(a.name,"flock"))
     return {"Flock candidate","name",2,true};
-  if(a.hasCompany(0x09c8)) return {"Xuntong candidate","company_id",1,true};
+  if(a.hasCompany(0x034d) || a.hasService(0xfc81)) return {"Axon candidate","company_or_service",2,false};
+  if(starts(a.name,"axon ") || equal(a.name,"axon"))return {"Axon candidate","name",2,false};
+  bool flipperService=false;
+  for(size_t i=0;i<a.serviceCount;++i)if(a.services[i]>=0x3080 && a.services[i]<=0x3083)flipperService=true;
+  if(flipperService && a.appearance==0x8600)return {"Flipper Zero candidate","flipper_composite",3,false};
+  if(equal(a.name,"flipper") || starts(a.name,"flipper "))return {"Flipper Zero candidate","flipper_name",2,false};
+  if(flipperService)return {"Flipper Zero candidate","flipper_service",1,false};
+  if(a.hasCompany(0x09c8)) return {"Flock battery hint","xuntong_company",1,true};
   for(size_t i=0;i<a.serviceCount;++i) if(a.services[i]>=0x3100 && a.services[i]<=0x3500)
     return {"Raven candidate","service_range",1,true};
-  if(a.hasCompany(0x034d) || a.hasService(0xfc81)) return {"Axon candidate","company_or_service",2,false};
+  if(serialName(a.name))return {"Flock battery hint","bare_serial",1,true};
+  if(a.nordicDfu || equal(a.name,"dfutarg"))return {"Flock DFU hint","nordic_dfu",1,true};
   const char *v=publicAddress ? vendor(mac) : "";
   if(*v) return {v,"public_oui",1,!strcmp(v,"Flock")};
   return {};
@@ -153,6 +192,31 @@ inline Wifi wifi(const uint8_t *p,size_t n) {
   }
   w.fingerprint=exact && seq==sizeof(expected) && w.wildcard && sub==0x40;
   return w;
+}
+// All WiFi paths (XIAO packets, Pi monitor, Pi surveys) use the same rules.
+inline Match ssidMatch(const char *ssid) {
+  // Our own dashboard is not a Flock camera signature.
+  if(equal(ssid,"flock noir"))return {};
+  if(contains(ssid,"flock") || contains(ssid,"penguin") || contains(ssid,"fs ext battery"))
+    return {"Flock candidate","ssid",2,true};
+  bool setup=starts(ssid,"pineapple_") && strlen(ssid)==14;
+  if(setup)for(size_t i=10;i<14;++i)if(!isxdigit((unsigned char)ssid[i]))setup=false;
+  if(setup || equal(ssid,"pineapple") || equal(ssid,"pineapple_management") || equal(ssid,"wifi pineapple"))
+    return {"WiFi Pineapple candidate","pineapple_ssid",2,false};
+  return {};
+}
+inline Match wifiMatch(const Wifi &w,const uint8_t *mac,int slot,bool probeRequest) {
+  Match m;
+  if(flockPrefix(mac)) {
+    m={"Flock candidate",slot==0?"oui_addr2":slot==1?"oui_addr1":"oui_addr3",uint8_t(slot==0?2:1),true};
+    if(slot==0 && probeRequest && w.wildcard)
+      m={"Flock candidate",w.fingerprint?"wildcard_ie":"wildcard_probe",uint8_t(w.fingerprint?4:3),true};
+  } else if(slot==0) {
+    const char *v=vendor(mac);if(*v)m={v,"oui_addr2",1,false};
+  }
+  // A station asking for a Pineapple SSID is not the AP hosting it.
+  if(slot==0) {auto named=ssidMatch(w.ssid);if((w.beacon || (probeRequest && named.alpr)) && named.tier>=m.tier && named.tier)m=named;}
+  return m;
 }
 // Decode all six ODID message types. Authentication bytes are retained in capture;
 // receiving an authentication message is NOT cryptographic verification.

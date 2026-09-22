@@ -1,5 +1,6 @@
 #include "pulse_detector.h"
 #include "radio_protocol.h"
+#include "radio_alert.h"
 #include "detector.h"
 #include <cassert>
 #include <cstdio>
@@ -34,6 +35,66 @@ int main() {
   uint8_t mac[]={0xb4,0x1e,0x52,1,2,3};assert(flockPrefix(mac));
   uint8_t group[]={0xff,0xff,0xff,0xff,0xff,0xff};assert(!flockPrefix(group));
   uint8_t local[]={0x82,0x6b,0xf2,0,0,0};assert(flockPrefix(local));
+  // Complete Unified Blue Flock-You union, including receiver-only observations.
+  const uint32_t upstreamOuis[]={0x70c94e,0x3c9180,0xd8f3bc,0x803049,0xb83532,
+    0x145afc,0x744ca1,0x083a88,0x9c2f9d,0xc03532,0x940853,0xe4aaea,0xf46add,
+    0xe00af6,0x24b2b9,0x00f48d,0xd03957,0xe8d0fc,0xe04f43,0xb81ea4,0x700894,
+    0x588e81,0xec1bbd,0x3c71bf,0x5800e3,0x9035ea,0x5c93a2,0x646e69,0x4827ea,
+    0xa4cf12,0x14b5cd,0x826bf2,0xb41e52,0x00037f};
+  for(uint32_t oui:upstreamOuis) {
+    uint8_t address[]={uint8_t(oui>>16),uint8_t(oui>>8),uint8_t(oui),1,2,3};
+    for(int slot:{0,1,2}) {
+      auto m=wifiMatch(Wifi(),address,slot,false);
+      assert(m.alpr && m.tier==(slot==0?2:1));
+      assert(!strcmp(assessment(m,false,false),"possible_camera"));
+      if(slot==0)assert(!strcmp(assessment(m,true,false),"corroborated_camera_candidate"));
+    }
+  }
+  Wifi w;w.valid=true;w.wildcard=true;
+  assert(wifiMatch(w,mac,0,true).tier==3);
+  w.fingerprint=true;assert(wifiMatch(w,mac,0,true).tier==4);
+  assert(wifiMatch(w,mac,1,true).tier==1);
+  assert(wifiMatch(w,mac,2,true).tier==1);
+  uint8_t unknown[]={0x10,0x11,0x12,1,2,3};
+  assert(!wifiMatch(w,unknown,0,true).tier); // fingerprint alone is not Flock
+  assert(ssidMatch("FS Ext Battery").alpr);
+  assert(!ssidMatch("Flock Noir").tier);
+  assert(!ssidMatch("Pineapple Pizza").tier);
+  assert(!ssidMatch("Open").tier);
+  strcpy(w.ssid,"Pineapple_1337");w.wildcard=w.fingerprint=false;
+  assert(!wifiMatch(w,unknown,0,true).tier); // probing client is not a Pineapple
+  w.beacon=true;assert(!strcmp(wifiMatch(w,unknown,0,false).category,"WiFi Pineapple candidate"));
+  assert(!wifiMatch(w,unknown,1,false).tier);
+  Advert named;
+  for(const char *name:{"Penguin-1234567890","1234567890","FS Ext Battery","DfuTarg"}) {
+    strcpy(named.name,name);auto m=bleMatch(named,unknown,false);assert(m.alpr && attention(m));
+  }
+  for(const char *name:{"123456789","12345678901","Android","msm8953_32","DfuTarg extra"}) {
+    strcpy(named.name,name);assert(!bleMatch(named,unknown,false).tier);
+  }
+  const uint8_t dfu[]={17,7,0x23,0xd1,0xbc,0xea,0x5f,0x78,0x23,0x15,0xde,0xef,0x12,0x12,0x30,0x15,0,0};
+  assert(bleMatch(advert(dfu,sizeof(dfu)),unknown,false).tier==1);
+  const uint8_t flipper[]={3,3,0x82,0x30,3,0x19,0,0x86};
+  auto fm=bleMatch(advert(flipper,sizeof(flipper)),unknown,false);
+  assert(!strcmp(fm.method,"flipper_composite") && fm.tier==3 && !fm.alpr);
+  assert(bleMatch(advert(flipper,4),unknown,false).tier==1);
+  uint8_t axon[]={0,0x25,0xdf,1,2,3};
+  assert(attention(bleMatch(Advert(),axon,true)));
+  assert(!bleMatch(Advert(),axon,false).tier);
+  const uint8_t axonCid[]={3,0xff,0x4d,3};
+  assert(attention(bleMatch(advert(axonCid,sizeof(axonCid)),unknown,false)));
+  RadioEncounter encounter;RadioAlertGate gate;
+  assert(encounter.observe(1,0xfffffff0));
+  assert(!encounter.observe(1,0x10));
+  assert(encounter.observe(3,0x20));
+  assert(encounter.observe(1,0x20+60000));
+  gate.request(1);assert(!gate.take(2,false,true,true)); // keep busy alert pending
+  assert(gate.take(3,false,true,false));
+  gate.request(4);assert(!gate.take(5,false,true,false));
+  assert(gate.take(4003,false,true,false));
+  gate.request(5000);assert(!gate.take(5001,true,true,false));assert(!gate.pending);
+  gate.request(5000);assert(!gate.take(5001,false,false,false));assert(!gate.pending);
+  gate.request(5000);assert(!gate.take(14000,false,true,false));assert(!gate.pending);
   const uint8_t cid[]={3,0xff,0x53,0x0d},svc[]={3,3,0x5f,0xfd};
   assert(!bleMatch(advert(cid,sizeof(cid)),group,true).tier);
   assert(!bleMatch(advert(svc,sizeof(svc)),group,true).tier);

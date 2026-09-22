@@ -17,6 +17,8 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -I firmware/FlockNoir tests/detection_test.cpp firmware/FlockNoir/detector.cpp -o /tmp/detection_test
           /tmp/detection_test
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -I firmware/FlockNoir tests/jpeg_test.cpp -o /tmp/jpeg_test
+          /tmp/jpeg_test
       - name: Check generated UI
         run: |
           python tools/html2header.py

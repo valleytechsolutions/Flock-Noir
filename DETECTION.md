@@ -37,8 +37,9 @@ looks for.
 The catch is **time resolution**. To confirm a 20 ms pulse you want to sample well above
 ~100 Hz. Two sensors, two very different capabilities:
 
-1. **Camera (OV2640) - weak for this.** At ~30-50 fps you get only ~4 samples per 100 ms
-   cycle, so a 20 ms pulse lands in about one frame. Worse, a **stock lens blocks 850 nm**,
+1. **Camera (OV2640) - weak for this.** At the XIAO's measured ~25 fps there are
+   only 2.5 frames per 100 ms cycle, so a 20 ms pulse can fall between frames.
+   A **stock lens blocks much of the near-IR light**,
    and auto-exposure fights you. The camera can flag "there is ~10 Hz flicker over there" and
    tell you *where* it is, but it cannot prove the exact pulse shape.
 2. **Analog photodiode - the right tool.** An 850 nm photodiode sampled at ~1 kHz captures the
@@ -52,8 +53,9 @@ Flock Noir runs both and treats them as independent detectors that share one ale
 **Camera path** (`detector.cpp`): grayscale frames at fixed exposure -> per-frame brightness of
 the brightest blob -> time-domain edge/period/duty scoring -> confidence. Good for spatial
 "which object", and it works with no extra hardware. The live **Signal Scope** in the UI shows
-this stream so you can see whether the sensor responds at all (a flat line while aimed at a
-camera means the IR-cut lens is blocking 850 nm).
+this stream so you can see whether brightness changes. A flat line can also
+mean an inactive illuminator, poor aim, insufficient light or saturation; it
+does not by itself diagnose an IR-cut filter or rule out a camera.
 
 **OPT101 path** (XIAO 0.4): a dedicated ADC1 task targets 1 kHz and reports the
 actual sample rate. It removes a slow ambient baseline, measures rising/falling

@@ -134,6 +134,10 @@ class Buzzer:
         if self.enabled and self.tones:
             self.play(self.tones[self.alert_idx][1])
 
+    def play_device_alert(self):
+        if self.enabled:
+            self.play(C.DEVICE_ALERT_RTTTL)
+
     def stop(self):
         self._stop.set()
         if self._thread and self._thread.is_alive():

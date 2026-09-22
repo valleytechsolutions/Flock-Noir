@@ -1,4 +1,4 @@
-"""Read-only post-flash checks on a connected XIAO. Requires pyserial (via PlatformIO)."""
+"""Post-flash diagnostics on a connected XIAO. Requires pyserial (via PlatformIO)."""
 import argparse
 import json
 import time
@@ -10,7 +10,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", required=True)
     parser.add_argument("--seconds", type=int, default=30)
-    parser.add_argument("--version", default="0.4.1")
+    parser.add_argument("--version", default="0.4.2")
     parser.add_argument("--require-gps-data", action="store_true")
     parser.add_argument("--require-sd", action="store_true")
     args = parser.parse_args()
@@ -60,8 +60,10 @@ def main():
         if health[-1]["uptime"] - health[0]["uptime"] < 5:
             errors.append("Uptime did not advance normally")
         for status in health:
-            if not status.get("cameraReady") or status["fps"] <= 0:
-                errors.append("Camera is not delivering frames")
+            if not status.get("cameraReady") or status["fps"] < 20:
+                errors.append("Camera is not delivering at least 20 fps for pulse analysis")
+            if status.get("cameraDecodeErrors", 0) or (status.get("cameraWidth"),status.get("cameraHeight")) != (640,480):
+                errors.append("VGA camera frame or resolution check failed")
             if not status["irPresent"] or not 800 <= status["irSampleHz"] <= 1200:
                 errors.append("ADC sampler is not running near 1 kHz")
             if args.require_sd and not status["sd"]:
@@ -79,13 +81,17 @@ def main():
                "errors": sorted(set(errors))}
     if health:
         keys = ("uptime", "fps", "cameraReady", "sd", "gpsChars", "gpsGood", "gpsFail",
-                "fix", "sats", "irEn", "irPresent", "irSampleHz", "irRaw", "irGaps")
+                "fix", "sats", "irEn", "irPresent", "irSampleHz", "irRaw", "irGaps",
+                "cameraWidth", "cameraHeight", "cameraDecodeErrors", "cameraFrames",
+                "analysisFrames", "cameraAnalysisMs", "captureFps")
         summary["health"] = {key: health[-1].get(key) for key in keys}
         summary["fpsRange"] = [min(h["fps"] for h in health), max(h["fps"] for h in health)]
     if radio:
         keys = ("mode", "wifiReady", "bleReady", "bleScanning", "packets", "dropped",
                 "freeHeap", "minFreeHeap", "logErrors")
         summary["radio"] = {key: radio[-1].get(key) for key in keys}
+        if len(radio)>1:
+            summary["radio"]["droppedDuringCheck"]=radio[-1]["dropped"]-radio[0]["dropped"]
     print(json.dumps(summary, indent=2))
     return 1 if errors else 0
 

@@ -37,6 +37,10 @@ class Radio:
         self.wifi_error = self.ble_error = self.native_error = ""
         self.packets = self.dropped = self.log_errors = 0
         self.last_alpr = self.last_tone = 0.
+        self.pending_alert = None
+        self.last_alert = None
+        self.events = self.audible_alerts = 0
+        self.ir_at = self.camera_at = None
         self.started = time.monotonic()
         self.session = uuid.uuid4().hex[:12]
         self.paths = {"log": Path(C.RADIO_DIR)/("events_"+self.session+".jsonl"),
@@ -85,6 +89,7 @@ class Radio:
                         dropped=self.dropped, logErrors=self.log_errors, freeHeap=0, minFreeHeap=0,
                         captureFull=any(self.sizes[k] >= C.RADIO_CAPTURE_LIMIT for k in ("pcap", "ble")),
                         watch=self.watch, target=self.target,
+                        events=self.events, audibleAlerts=self.audible_alerts,
                         detail="; ".join(e for e in (self.native_error, self.wifi_error, self.ble_error) if e),
                         modeHint="Pi: field mode hops the dedicated monitor adapter. The dashboard hotspot stays on.")
 
@@ -97,6 +102,42 @@ class Radio:
         with self.lock:
             self.devices.clear()
             self.last_alpr = 0.
+            self.pending_alert = None
+
+    def alert(self):
+        with self.lock:
+            recent = [d for d in self.devices.values() if d.get("priority", 0) and
+                      time.monotonic()-d.get("matched", 0) <= 8]
+            if not recent:
+                return None
+            best = max(recent, key=lambda d: (d["priority"], d["matched"]))
+            ir, camera = self._optical_near(best["matched"])
+            return dict({k: best[k] for k in ("category", "method", "tier", "alpr", "mac", "rssi")},
+                        assessment=native.assessment(best["alpr"],best["tier"],ir,camera),
+                        ir_timing_match=ir,camera_pattern=camera)
+
+    def _optical_near(self, when):
+        return (self.ir_at is not None and abs(when-self.ir_at)<=3,
+                self.camera_at is not None and abs(when-self.camera_at)<=3)
+
+    def _update_optical(self):
+        result = self.ir.result()
+        if result["detected"]:
+            self.ir_at = result["timestamp"]
+        if self.camera.detector.last().detected:
+            self.camera_at = time.monotonic()
+
+    def _play_pending(self):
+        with self.lock:
+            self._update_optical()
+            now = time.monotonic()
+            if self.state["muted"] or not self.buzzer.enabled or (self.pending_alert is not None and now-self.pending_alert > 8):
+                self.pending_alert = None
+            if self.pending_alert is None or self.buzzer.is_playing() or (self.last_alert is not None and now-self.last_alert < 4):
+                return
+            self.buzzer.play_device_alert()
+            self.pending_alert, self.last_alert = None, now
+            self.audible_alerts += 1
 
     def recent_alpr(self, when=None):
         when = time.monotonic() if when is None else when
@@ -221,7 +262,8 @@ class Radio:
             if kind in ("cid", "svc") and re.fullmatch("[0-9A-Fa-f]{4}", value):
                 hit = int(value, 16) in packet.get("companies" if kind == "cid" else "services", [])
             if hit:
-                row.update(category="Watchlist", method=kind, tier=1 if kind in ("mac", "oui") else 2, alpr=False)
+                row.update(category="Watchlist", method=kind, tier=1 if kind in ("mac", "oui") else 2, alpr=False,
+                           priority=0 if kind in ("mac", "oui") else 2)
                 return
 
     def process(self, observation):
@@ -232,6 +274,7 @@ class Radio:
         else:
             packet = native.decode(observation["data"], observation.get("address"), observation.get("address_type") == 0)
         with self.lock:
+            self._update_optical()
             self._capture(observation)
             if not packet["valid"]:
                 return
@@ -254,11 +297,21 @@ class Radio:
         when, protocol = observation["timestamp"], observation["protocol"]
         key = protocol + row["mac"]
         old = self.devices.get(key, {})
-        stronger = row["tier"] > old.get("tier", 0)
+        ir, camera = self._optical_near(when)
+        corroborated = row["alpr"] and row["tier"] >= 2 and (ir or camera)
+        optical_upgrade = corroborated and (not old.get("corroborated") or when-old.get("seen", 0) >= 60)
+        stronger = row["tier"] > old.get("tier", 0) or optical_upgrade
         d = dict(old, mac=row["mac"], protocol=protocol, name=packet["name"] or old.get("name", ""),
                  rssi=observation["rssi"], seen=when, count=old.get("count", 0)+1)
-        if row["tier"] >= old.get("tier", 0):
-            d.update(category=row["category"], method=row["method"], tier=row["tier"])
+        d["corroborated"] = corroborated or (old.get("corroborated",False) and when-old.get("seen",0)<60)
+        if row["tier"] and (row["tier"] >= old.get("tier", 0) or when-old.get("matched", 0) > 8):
+            d.update(category=row["category"], method=row["method"], tier=row["tier"],
+                     alpr=row["alpr"], priority=row["priority"], matched=when)
+        if row["priority"]:
+            fresh = not old.get("alert_tier") or when-old.get("attention_seen", 0) >= 60
+            if (fresh or optical_upgrade or row["tier"] > old.get("alert_tier", 0)) and not self.state["muted"] and self.buzzer.enabled:
+                self.pending_alert = when
+            d.update(attention_seen=when, alert_tier=row["tier"] if fresh else max(row["tier"], old.get("alert_tier", 0)))
         drone = dict(old.get("drone", {}))
         incoming = packet["drone"] if row["slot"] == 0 else {}
         for field, value in incoming.items():
@@ -286,31 +339,32 @@ class Radio:
         if not row["tier"] or (not stronger and when-old.get("logged", 0) < 10):
             return
         d["logged"] = when
+        self.events += 1
         fix = self.gps.fix()
         valid = bool(fix.get("valid")) and time.monotonic()-when <= C.GPS_MAX_AGE_S
-        ir = self.ir.result()["detected"]
         record = dict(schema=1, time=self.gps.iso_utc(), uptime_ms=int(when*1000),
                       protocol=protocol, mac=d["mac"], name=d["name"], category=row["category"],
                       method=row["method"], tier=row["tier"], rssi=d["rssi"], channel=observation["channel"],
                       gps_valid=valid, lat=fix.get("lat") if valid else None, lon=fix.get("lon") if valid else None,
-                      ir_timing_match=ir, camera_pattern=self.camera.detector.last().detected,
+                      ir_timing_match=ir, camera_pattern=camera, alpr=row["alpr"],
+                      assessment=native.assessment(row["alpr"],row["tier"],ir,camera),
                       evidence="ir_radio_nearby" if ir and row["alpr"] and row["tier"] >= 2 else "radio_candidate",
                       drone_id=d["droneId"], drone_lat=d["droneLat"], drone_lon=d["droneLon"],
                       operator_id=drone.get("operatorId", ""), altitude_m=drone.get("altitude"),
                       speed_mps=drone.get("speed"), heading_deg=drone.get("heading"),
                       pilot_lat=drone.get("pilotLat"), pilot_lon=drone.get("pilotLon"), odid_types=drone["types"])
         self._write("log", self._json_bytes(record))
-        if stronger and row["tier"] >= 2 and not self.state["muted"] and not self.buzzer.is_playing():
-            self.buzzer.play_alert()
 
     def _worker(self):
         while not self.stop_event.is_set():
             try:
                 observation = self.queue.get(timeout=0.2)
             except queue.Empty:
+                self._play_pending()
                 continue
             try:
                 self.process(observation)
+                self._play_pending()
             except (ValueError, OSError, KeyError):
                 with self.lock:
                     self.log_errors += 1

@@ -1,11 +1,38 @@
-# Radio and IR detection in Flock Noir 0.4.1
+# Radio and IR detection in Flock Noir 0.4.2
 
 The XIAO ESP32-S3 Sense build combines OPT101 pulse sampling, OV2640 camera
 analysis, passive WiFi observations, BLE advertisements, GPS and SD logging.
-The original four-tab interface remains the control panel. Pi 0.4.1 shares the
+The original four-tab interface remains the control panel. Pi 0.4.2 shares the
 native pulse/radio parsers and APIs, with MCP3008 input, legacy BLE HCI scanning,
 and a separate monitor-capable USB WiFi adapter for passive packets. See
-[Pi Zero 2 W setup](../pi/README.md#radio-and-opt101-update-041).
+[Pi Zero 2 W setup](../pi/README.md#radio-and-opt101-update-042).
+
+Radio rules run automatically, even with OPT101 off and WiGLE disabled. The
+Detector tab now shows radio-only alerts and an ALPR/device table with event-log
+download; the existing Wardrive controls still choose channel/mode/captures.
+The detections tile includes radio event records as well as optical records.
+These are event counts, not unique cameras. Stronger ALPR/Flock rules take
+priority in the radio banner; a match expires there after eight seconds without
+fresh matching evidence. Logs and the device table retain history.
+
+The OUI set is the same complete 34-prefix union as Unified Blue's Flock-You;
+regression tests check every prefix as transmitter, receiver and management
+BSSID. OUI-only hits are `possible_camera`, stronger probe/advertisement rules
+are `camera_signature_match`, and a qualifying radio rule plus camera or OPT101
+evidence within three seconds is `corroborated_camera_candidate`. Logs retain
+both optical flags, the rule, tier and fresh GPS position when available. GPS
+locates the observation; it does not increase identity confidence. These
+assessments do not establish that nearby radio and light share a source. No
+match means unknown, never proof that a device is not a camera.
+
+New ALPR/Flock, Axon, Meta, Flipper and Pineapple candidate encounters play the
+Mario opening phrase. Weak Flock-You hints also sound, clearly marked tier 1.
+Repeated packets do not restart it; new optical corroboration, a stronger rule or reappearance after 60
+seconds can alert again. Sounds are coalesced to at most one every four seconds.
+If the buzzer is busy, the notification waits up to eight seconds. Mute and the
+buzzer enable switch suppress it. Optical timing matches retain the selected
+Settings tone. `CMD:TEST_ALERT` previews Mario over USB without creating a
+detection or altering saved settings.
 
 ## XIAO operating modes
 
@@ -76,11 +103,25 @@ Unified Blue's Flask dashboard, boot selector or session CRC format.
 - BLE Flock accessory UUID: `e8ccbb38-9532-46a8-9fe5-1814df172e6f`. Penguin,
   FS Ext Battery and Flock names are candidates. Xuntong company `09C8` and
   Raven's reported `3100`-`3500` service range are weak tier-1 hints; they do not
-  independently corroborate IR. Bare ten-digit serial numbers are not matched.
+  independently corroborate IR. Exact ten-digit serials, `DfuTarg`, and Nordic
+  DFU UUID `00001530-1212-efde-1523-785feabcd123` are also tier-1 Flock-You hints.
+  Nordic DFU and serial formats are shared by unrelated devices; they never
+  independently corroborate IR. Exact Penguin serial names use `penguin_serial`.
+  WiFi names include `FS Ext Battery`; Flock Noir's own default SSID is excluded.
 - Axon: company `034D`, service `FC81`, public OUI `00:25:DF`.
 - Meta glasses: company `0D53` AND service `FD5F` in the same advertisement, or
   a Ray-Ban / Wayfarer / Oakley Meta name. Either numeric signature alone does
   not trigger that preset. Advertised names can be spoofed.
+- Flipper Zero: official serial-profile advertised services `3080`-`3083`
+  (base `3080` plus hardware color) with appearance `8600` are tier 3; service
+  alone is tier 1; `Flipper` / `Flipper ...` names are tier 2. No generic ST OUI
+  rule is used. Bluetooth-off, connected/nonadvertising and renamed/custom
+  profiles can be missed. This does not detect sub-GHz, NFC or RFID activity.
+- WiFi Pineapple: beacon/probe-response SSIDs `Pineapple_` plus four hex digits,
+  `Pineapple_Management`, `Pineapple`, or `WiFi Pineapple` are tier-2 candidates.
+  A client's probe request for that name is not classified as a Pineapple AP.
+  Renamed/hidden devices can evade these rules; a generic `Open` SSID does not
+  match. These rules cannot prove PineAP activity or identify every Pineapple.
 - Public-address vendor presets include Ring, Axon, Flock, DJI, Parrot and
   Skydio. Vendor matching is disabled for random BLE addresses. A manually
   supplied watchlist can still match such an address, but it may rotate.
@@ -128,6 +169,27 @@ OPT101 events while the foreground loop is busy. Its overflow counter is in
 `/api/status`. Slow downloads/recording can still delay logging, camera frames
 and radio queue draining. Monitor the counters during hardware testing.
 
+### Camera view
+
+The XIAO uses a VGA (640x480) sensor frame instead of enlarging a 160x120 image.
+The sensor produces JPEG directly; a background task reads its 8x8 luminance
+block averages into an 80x60 analysis grid without full image decoding.
+Small/distant lights can be diluted by block averaging; OPT101 remains the
+primary pulse-timing input. This avoids the corruption seen with high-rate raw
+VGA while the radios were active. The browser uses normal image interpolation.
+Exposure/gain remain fixed for
+pulse detection, so the view remains a near-IR diagnostic rather than an
+auto-exposed general-purpose camera. An IR-cut-free lens and fixed white balance
+can produce unusual colors in daylight. Actual preview/recording rate depends on
+SD/network load; sensor capture and actual analysis rate are reported separately.
+The Detector FPS tile reports analysis, not merely camera capture.
+Timing gaps over 50 ms reset the camera pulse window instead of classifying
+aliased flicker. OPT101 sampling remains independent.
+
+`python tools/camera_snapshot.py --port COM44 --output snapshot.jpg` retrieves
+one bounded diagnostic JPEG over USB. Use the actual serial port. This is a
+snapshot utility, not a high-rate video transport.
+
 ## Data and resource limits
 
 | Data | Path | Behavior |
@@ -146,8 +208,8 @@ formatting or deletion. Power loss can leave the last record incomplete.
 The radio queue holds 32 observations and the live table 64 devices. The
 foreground drains up to eight observations per loop. Overflow is counted and
 does not block the WiFi/BLE callback. Repeated candidate events are limited to
-one per MAC/protocol per ten seconds, except rule-strength upgrades.
-New tier-2-or-higher evidence can sound an alert. Global mute suppresses sounds,
+one per MAC/protocol per ten seconds, except rule-strength or optical-corroboration upgrades.
+New attention-worthy candidates can sound an alert, including weak Flock hints. Global mute suppresses sounds,
 not logging. Capture limits and SD failures are exposed in the UI.
 
 GPS fixes older than three seconds are rejected. Events delayed over three seconds
@@ -159,7 +221,8 @@ position must not be interpreted as the target's location. Drone positions are
 decoded broadcasts, separately labeled, and can be spoofed.
 
 USB commands at 115200 baud: `CMD:STATUS`, `CMD:HEALTH`, `CMD:VERSION`, `CMD:DUMP_LIVE`,
-`CMD:CLEAR_LIVE`. `CMD:HEALTH` returns the same camera, GPS, SD and ADC diagnostics
+`CMD:CLEAR_LIVE`, `CMD:TEST_ALERT`, `CMD:FRAME`.
+`CMD:HEALTH` returns the same camera, GPS, SD and ADC diagnostics
 as `/api/status`, for checking a flashed board without changing WiFi networks.
 Clear Live affects RAM only. Output uses a bounded write per
 foreground iteration. Historical SD files are available through the dashboard.

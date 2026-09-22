@@ -24,7 +24,9 @@ void Buzzer::attachIfNeeded() {
 #ifdef BUZZER_ENABLE_PIN
   if (_attached) return;
   // Dedicated LEDC channel, away from the camera XCLK (channel/timer 0).
-  ledcAttachChannel(BUZZER_PIN, 2000, 10, BUZZER_LEDC_CHANNEL);
+  if(!ledcAttachChannel(BUZZER_PIN, 2000, 10, BUZZER_LEDC_CHANNEL)) {
+    Serial.println("[BUZZER] LEDC attach failed");return;
+  }
   ledcWrite(BUZZER_PIN, 0);
   _attached = true;
 #endif
@@ -155,6 +157,7 @@ void Buzzer::playSlot(int idx) {
 void Buzzer::playAlert() {
   if (_enabled && _count > 0) playSlot(_alertIdx);
 }
+void Buzzer::playDeviceAlert() {if(_enabled)play(DEVICE_ALERT_RTTTL);}
 
 void Buzzer::stop() { _playing = false; toneHz(0); }
 

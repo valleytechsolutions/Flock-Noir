@@ -43,7 +43,8 @@ static std::string droneJson(const Drone &d) {
 static std::string matchJson(const Match &m,const uint8_t *address,int slot) {
   return "{\"mac\":"+quote(mac(address).c_str())+",\"slot\":"+std::to_string(slot)+
     ",\"category\":"+quote(m.category)+",\"method\":"+quote(m.method)+
-    ",\"tier\":"+std::to_string(m.tier)+",\"alpr\":"+(m.alpr?"true":"false")+"}";
+    ",\"tier\":"+std::to_string(m.tier)+",\"alpr\":"+(m.alpr?"true":"false")+
+    ",\"priority\":"+std::to_string(priority(m))+"}";
 }
 FN_EXPORT int fn_decode_wifi(const uint8_t *p,size_t n,char *out,size_t cap) {
   if(!p || n>4096) return -1;
@@ -60,14 +61,7 @@ FN_EXPORT int fn_decode_wifi(const uint8_t *p,size_t n,char *out,size_t cap) {
     const uint8_t *m=p+offsets[i];if(m[0]&1)continue;
     Match match;
     if(i==0 && remote)match={"Drone Remote ID","wifi_remote_id",3,false};
-    else if(flockPrefix(m)) {
-      match={"Flock candidate",i==0?"oui_addr2":(i==1?"oui_addr1":"oui_addr3"),uint8_t(i==0?2:1),true};
-      if(i==0 && (p[0]&0xfc)==0x40 && w.wildcard)
-        match={"Flock candidate",w.fingerprint?"wildcard_ie":"wildcard_probe",uint8_t(w.fingerprint?4:3),true};
-    } else if(i==0) {
-      const char *v=vendor(m);if(*v)match={v,"oui_addr2",1,false};
-      if(contains(w.ssid,"flock") || contains(w.ssid,"penguin"))match={"Flock candidate","ssid",2,true};
-    }
+    else match=wifiMatch(w,m,i,(p[0]&0xfc)==0x40);
     if(!first)s+=',';
     first=false;s+=matchJson(match,m,i);
   }
@@ -87,12 +81,14 @@ FN_EXPORT int fn_decode_ble(const uint8_t *p,size_t n,const uint8_t *address,int
   return output(s+"]}",out,cap);
 }
 FN_EXPORT void *fn_pulse_new() {return new(std::nothrow) PulseDetector;}
+FN_EXPORT const char *fn_assessment(int alpr,int tier,int ir,int camera) {
+  return assessment({"","",uint8_t(tier),alpr!=0},ir!=0,camera!=0);
+}
 FN_EXPORT int fn_decode_survey(const uint8_t *address,const char *ssid,char *out,size_t cap) {
   if(!address || !ssid || strlen(ssid)>128)return -1;
-  Match match;
-  if(flockPrefix(address))match={"Flock candidate","survey_oui",2,true};
-  else {const char *v=vendor(address);if(*v)match={v,"survey_oui",1,false};}
-  if(contains(ssid,"flock") || contains(ssid,"penguin"))match={"Flock candidate","survey_ssid",2,true};
+  Wifi w;w.valid=w.beacon=true;snprintf(w.ssid,sizeof(w.ssid),"%s",ssid);
+  Match match=wifiMatch(w,address,0,false);
+  if(match.tier)match.method=contains(match.method,"ssid")?"survey_ssid":"survey_oui";
   return output("{\"valid\":true,\"name\":"+quote(ssid)+",\"drone\":"+droneJson(Drone())+
                 ",\"rows\":["+matchJson(match,address,0)+"]}",out,cap);
 }

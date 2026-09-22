@@ -4,7 +4,7 @@
 
 # Flock Noir on Raspberry Pi
 
-*Flock Noir 0.4.1 for **Pi Zero 2 W + Camera Module NoIR v2**, sharing the XIAO
+*Flock Noir 0.4.2 for **Pi Zero 2 W + Camera Module NoIR v2**, sharing the XIAO
 web design, native OPT101 pulse validator and radio signature parsers. Pi camera,
 SPI and radio operation still require physical validation on your hardware.*
 
@@ -44,7 +44,7 @@ SPI and radio operation still require physical validation on your hardware.*
 
 1. Download `flocknoir-pi.img.xz` from the
    [Releases page](https://github.com/valleytechsolutions/Flock-Noir/releases).
-2. Choose the **Pi 0.4.1** release, not the XIAO binary or older Pi 0.3 image. Verify its checksum.
+2. Choose the **Pi 0.4.2** release and verify its checksum.
    Open **Raspberry Pi Imager**, choose your Pi, then **Use custom** and pick the file.
    (You can skip Imager's customization; the image is already set up.)
 3. Flash, insert the card with the camera ribbon attached, and power up.
@@ -209,7 +209,7 @@ XIAO), `wardrive/wigle_*.csv`, `videos/rec_*.mp4` (or `.h264` if ffmpeg is absen
 
 | | XIAO ESP32-S3 Sense | Raspberry Pi |
 |---|---|---|
-| Camera | OV2640; about 25 fps measured on the 0.4.1 build | NoIR; configured for 60 fps, hardware rate must be measured |
+| Camera | OV2640; VGA capture/analysis about 25 fps on 0.4.2; preview is slower | NoIR; configured for 60 fps, hardware rate must be measured |
 | Recording | MJPEG AVI + WAV sidecar | Hardware H.264 mp4; audio muxed in if a USB mic + ffmpeg are present |
 | IR photodiode | Built-in ADC (D1) | Needs an MCP3008 on SPI |
 | Wi-Fi | AP + STA scan (single radio) | NetworkManager hotspot; scans pause while a phone is connected (single radio) |
@@ -226,7 +226,7 @@ XIAO), `wardrive/wigle_*.csv`, `videos/rec_*.mp4` (or `.h264` if ffmpeg is absen
   login shell is disabled (`raspi-config`).
 - **Service logs**: `journalctl -u flocknoir -f`.
 
-## Radio and OPT101 update (0.4.1)
+## Radio and OPT101 update (0.4.2)
 
 The Pi now uses the same native C++ pulse and radio parsers as XIAO, compiled by
 the installer. It adds strict pulse-width/duty/regularity checks, clipping and
@@ -236,6 +236,12 @@ four-tab design stays the same. Full signature provenance and limitations are
 in [RADIO.md](../docs/RADIO.md); please support
 [Colonel Panic](https://colonelpanic.tech/) and
 [OUI Spy Unified Blue](https://github.com/colonelpanichacks/oui-spy-unified-blue).
+
+Version 0.4.2 surfaces radio-only detections on the Detector tab, includes the
+additional Flock-You serial/DFU hints, Flipper BLE and Pineapple SSID candidates,
+and plays Mario for new device encounters, including Axon and Meta. Repeated
+packets stay quiet, mute is respected, and logs retain the evidence tier.
+These radio rules do not require the IR toggle or a GPS fix to detect/log.
 
 ### Pi Zero 2 W radio setup
 

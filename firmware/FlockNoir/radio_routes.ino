@@ -41,6 +41,10 @@ void registerRadioRoutes() {
 void serviceRadioSerial() {
   static String command,output;
   static size_t position=0;
+  static uint8_t *snapshot=nullptr;
+  static size_t snapshotLen=0,snapshotPos=0;
+  static uint32_t snapshotAt=0;
+  if(snapshot && (!Serial || millis()-snapshotAt>30000)) {free(snapshot);snapshot=nullptr;}
   if(position<output.length()) {
     size_t remaining=output.length()-position;
     size_t n=min(remaining,size_t(max(0,Serial.availableForWrite())));
@@ -48,6 +52,15 @@ void serviceRadioSerial() {
     return;
   }
   output="";position=0;
+  g_serialReplyActive=bool(snapshot);
+  if(snapshot) {
+    size_t end=min(snapshotPos+512,snapshotLen);
+    output="{\"frame_offset\":"+String(snapshotPos)+",\"frame_hex\":\"";
+    for(;snapshotPos<end;++snapshotPos) {char hex[3];snprintf(hex,sizeof(hex),"%02x",snapshot[snapshotPos]);output+=hex;}
+    output+="\"}\n";
+    if(snapshotPos==snapshotLen){free(snapshot);snapshot=nullptr;}
+    return;
+  }
   for(int i=0;i<64 && Serial.available();++i) {
     char c=Serial.read();
     if(c=='\r')continue;
@@ -57,7 +70,16 @@ void serviceRadioSerial() {
       else if(command=="CMD:VERSION")output="{\"firmware\":\"Flock Noir\",\"version\":\"" FLOCK_NOIR_VERSION "\"}\n";
       else if(command=="CMD:DUMP_LIVE")output=radio.rowsJson()+"\n";
       else if(command=="CMD:CLEAR_LIVE") {radio.clearLive();output="{\"ok\":true}\n";}
+      else if(command=="CMD:TEST_ALERT") {buzzer.playDeviceAlert();output=String("{\"ok\":")+(buzzer.enabled()?"true":"false")+",\"test\":\"Mario device alert\"}\n";}
+      else if(command=="CMD:FRAME") {
+        if(g_previewLength && millis()-g_previewAt<=1000)snapshot=(uint8_t*)ps_malloc(g_previewLength);
+        if(snapshot) {
+          snapshotLen=g_previewLength;snapshotPos=0;snapshotAt=millis();memcpy(snapshot,g_previewJpeg,snapshotLen);
+          output="{\"frame_bytes\":"+String(snapshotLen)+",\"width\":"+String(g_cameraWidth)+",\"height\":"+String(g_cameraHeight)+"}\n";
+        } else output="{\"error\":\"No recent JPEG or snapshot memory\"}\n";
+      }
       else output="{\"error\":\"Unknown command; hold BOOT 1.5s for dashboard\"}\n";
+      g_serialReplyActive=output.length()>0;
       command="";break;
     }
     if(command.length()<80)command+=c;else command="";
