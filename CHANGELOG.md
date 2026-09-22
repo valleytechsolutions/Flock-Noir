@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.2 - Device alerts and clearer camera view
+## 0.4.3 - Device alerts and clearer camera view
 
 - Verify the complete 34-prefix Flock-You OUI set; add serial/DFU hints and
   Flipper Zero / WiFi Pineapple candidate rules alongside Axon and Meta.

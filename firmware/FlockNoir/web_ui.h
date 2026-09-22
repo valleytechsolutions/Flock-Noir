@@ -68,6 +68,7 @@ header{display:flex;align-items:center;gap:16px;padding:16px 16px 12px;max-width
  background:linear-gradient(180deg,var(--panel2),var(--panel));font-weight:700;letter-spacing:.5px;
  display:flex;align-items:center;gap:12px}
 .banner .ico{font-size:22px}
+.banner>span{min-width:0;overflow-wrap:anywhere}
 .banner.clear{color:var(--green)}
 .banner.clear .ico{color:var(--green-d)}
 .banner.alert{background:linear-gradient(180deg,#2a0d12,#1a070b);border-color:var(--red);color:#ffd7db;
@@ -236,9 +237,9 @@ footer .spacer{flex:1}
       <div class="row-head"><strong>Recent detections</strong>
         <span class="spacer" style="flex:1"></span>
         <a class="btn sm" href="/api/log" download>CSV</a></div>
-      <table><thead><tr><th>Time (UTC)</th><th>Src</th><th>Lat</th><th>Lon</th>
+      <div style="overflow-x:auto"><table><thead><tr><th>Time (UTC)</th><th>Src</th><th>Lat</th><th>Lon</th>
         <th class="right">Hz</th><th class="right">Duty</th><th class="right">Conf</th></tr></thead>
-        <tbody id="rows"><tr><td colspan="7" class="dim">no detections logged yet</td></tr></tbody></table>
+        <tbody id="rows"><tr><td colspan="7" class="dim">no detections logged yet</td></tr></tbody></table></div>
     </div>
   </section>
 

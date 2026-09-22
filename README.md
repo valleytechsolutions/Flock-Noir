@@ -51,7 +51,7 @@ capture, and drone Remote ID. OPT101 pulse timing runs alongside wardriving;
 events record their source and supporting evidence. The original UI design and
 four tabs remain. See [features, limits and operation](docs/RADIO.md).
 
-**Version 0.4.2** brings Flock-You candidates to the main Detector banner and
+**Version 0.4.3** brings Flock-You candidates to the main Detector banner and
 device table, adds the missing serial/DFU hints, Flipper Zero and WiFi Pineapple
 rules, and plays a Mario phrase for new ALPR/Flock, Axon, Meta and tool-device
 encounters. All these rules are on by default, independent of the IR toggle.
@@ -139,7 +139,7 @@ sensor is wired. It builds on research from [Noflock/Flock-IR-Detection](https:/
 ## Hardware targets
 
 Flock Noir has XIAO and Raspberry Pi targets that share the web UI
-(`web/index.html`) and native pulse/radio parsers. Both have 0.4.2 detection,
+(`web/index.html`) and native pulse/radio parsers. Both have 0.4.3 detection,
 watchlists, evidence logs and capture downloads. The **Pi Zero 2 W** uses an
 MCP3008 for OPT101 input and a dedicated monitor-capable USB WiFi adapter for
 passive packet capture; onboard WiFi supports surveys and the hotspot, and

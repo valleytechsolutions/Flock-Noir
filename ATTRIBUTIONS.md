@@ -43,7 +43,7 @@ Use its flasher for OUI Spy hardware/software, not for this Flock Noir build.
 - [Radiotap](https://www.radiotap.org/): packet metadata format for the Pi monitor
   adapter transport, implemented independently for the fields used here.
 
-Additional public signature references used in 0.4.2:
+Additional public signature references used in 0.4.3:
 
 - [Unified Blue Flock-You research](https://github.com/colonelpanichacks/oui-spy-unified-blue/blob/0d67d145a5444b70a53061bb4ab00f0765cad245/src/raw/flockyou_promiscious.cpp):
   Penguin/bare serials, FS Ext Battery, Xuntong, Raven and Nordic DFU hints.
@@ -54,7 +54,7 @@ Additional public signature references used in 0.4.2:
 - [Hak5 setup documentation](https://github.com/hak5/hak5-docs/blob/master/setup/connecting-to-the-wifi-pineapple-over-wifi.md):
   Pineapple setup SSID convention. Other named-SSID rules are weak hints only.
 
-Pi 0.4.2 compiles Flock Noir's own shared `pulse_detector.h` and
+Pi 0.4.3 compiles Flock Noir's own shared `pulse_detector.h` and
 `radio_protocol.h`; these use the same research credits as the XIAO target.
 
 ## Existing project credits

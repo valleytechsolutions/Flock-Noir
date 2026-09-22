@@ -1,4 +1,4 @@
-# Flock Noir 0.4.2 - Raspberry Pi Zero 2 W
+# Flock Noir 0.4.3 - Raspberry Pi Zero 2 W
 
 Installable Raspberry Pi OS Lite arm64 image with Flock Noir, the shared XIAO/Pi
 pulse and radio parsers, unchanged dashboard design, BLE scanning, WiFi candidate

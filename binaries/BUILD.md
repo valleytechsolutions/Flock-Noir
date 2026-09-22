@@ -1,4 +1,4 @@
-# Flock Noir 0.4.2 - XIAO ESP32-S3 Sense
+# Flock Noir 0.4.3 - XIAO ESP32-S3 Sense
 
 Flock-You's complete 34-prefix OUI set now feeds the main Detector view, with
 serial/DFU hints, Axon, Meta glasses, Flipper Zero and WiFi Pineapple candidates.

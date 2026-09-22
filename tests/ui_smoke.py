@@ -28,6 +28,11 @@ with sync_playwright() as p:
         options['executable_path'] = os.environ['FLOCKNOIR_BROWSER']
     browser = p.chromium.launch(**options)
     page = browser.new_page(viewport={'width':1100,'height':1000})
+    def fits_viewport():
+        overflow=page.evaluate("""[...document.querySelectorAll('body *')]
+          .filter(e=>e.getBoundingClientRect().right>innerWidth+1 && e.getBoundingClientRect().width)
+          .map(e=>[e.tagName,e.id,e.className,e.getBoundingClientRect().right]).slice(0,20)""")
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+1'), overflow
     errors = []
     page.on('pageerror',lambda error: errors.append(str(error)))
     def route(request):
@@ -49,6 +54,8 @@ with sync_playwright() as p:
         return request.fulfill(json=fixtures.get(path,{}))
     page.route('**/*',route)
     page.goto('http://flocknoir.test/')
+    if os.environ.get('FLOCKNOIR_TEST_FONT'):
+        page.add_style_tag(content=':root{--mono:"Courier New",monospace}')
     page.wait_for_function("document.querySelector('#bannerTxt').textContent.includes('IR + RADIO NEARBY')")
     assert page.locator('.tab').count() == 4
     assert page.locator('#rows script').count() == 0
@@ -61,7 +68,7 @@ with sync_playwright() as p:
     assert page.locator('#count').text_content() == '4'
     for width in (1100,390):
         page.set_viewport_size({'width':width,'height':1000})
-        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+1')
+        fits_viewport()
     status.update(irDet=True, radioAlert=None)
     page.locator('[data-tab=wardrive]').click()
     page.wait_for_function("document.querySelector('#radioRows').textContent.includes('B4:1E:52')")

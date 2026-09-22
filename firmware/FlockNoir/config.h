@@ -5,7 +5,7 @@
 // =============================================================================
 #pragma once
 
-#define FLOCK_NOIR_VERSION "0.4.2"
+#define FLOCK_NOIR_VERSION "0.4.3"
 
 // -----------------------------------------------------------------------------
 //  WiFi SoftAP  (device makes its own network -- no internet needed in field)

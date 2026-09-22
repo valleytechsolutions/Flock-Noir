@@ -1,11 +1,11 @@
-# Radio and IR detection in Flock Noir 0.4.2
+# Radio and IR detection in Flock Noir 0.4.3
 
 The XIAO ESP32-S3 Sense build combines OPT101 pulse sampling, OV2640 camera
 analysis, passive WiFi observations, BLE advertisements, GPS and SD logging.
-The original four-tab interface remains the control panel. Pi 0.4.2 shares the
+The original four-tab interface remains the control panel. Pi 0.4.3 shares the
 native pulse/radio parsers and APIs, with MCP3008 input, legacy BLE HCI scanning,
 and a separate monitor-capable USB WiFi adapter for passive packets. See
-[Pi Zero 2 W setup](../pi/README.md#radio-and-opt101-update-042).
+[Pi Zero 2 W setup](../pi/README.md#radio-and-opt101-update-043).
 
 Radio rules run automatically, even with OPT101 off and WiGLE disabled. The
 Detector tab now shows radio-only alerts and an ALPR/device table with event-log

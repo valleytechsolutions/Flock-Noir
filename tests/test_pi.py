@@ -169,7 +169,7 @@ class PiTests(unittest.TestCase):
         self.assertEqual(row["evidence"], "ir_timing_match")
         data = self.client.get("/api/status").get_json()
         self.assertFalse(data["irEn"])
-        self.assertEqual(data["version"], "0.4.2")
+        self.assertEqual(data["version"], "0.4.3")
         self.assertNotIn("NaN", self.client.get("/api/status").text)
 
     def test_radio_api_and_real_capture_format(self):
