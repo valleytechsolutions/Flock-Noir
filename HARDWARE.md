@@ -31,7 +31,7 @@ always visually confirm an actual camera).
 |---|------|-----|--------------|-------|
 | 1 | **Seeed Studio XIAO ESP32-S3 Sense** | 1 | [seeedstudio.com](https://www.seeedstudio.com/XIAO-ESP32S3-Sense-p-5639.html) - [pre-soldered](https://www.seeedstudio.com/Seeed-Studio-XIAO-ESP32S3-Sense-Pre-Soldered-p-6335.html) | The whole brain. Ships with the **OV2640 camera**, **microSD slot**, **PDM mic**, PSRAM, and a **2.4 GHz antenna**. Get the *Sense* version - the plain XIAO S3 has no camera/SD. |
 | 2 | **microSD card** | 1 | any | **Format FAT32.** 4-32 GB is plenty. Holds the detection CSV, wardrive CSV, and recordings. |
-| 3 | **GNSS / GPS module (NMEA, UART)** | 1 | **[Seeed L76K GNSS for XIAO](https://www.seeedstudio.com/L76K-GNSS-Module-for-Seeed-Studio-XIAO-p-5864.html)** | Any NMEA GNSS over UART works. The reference build used a **Quectel LC29H** (default **115200** baud). The Seeed **L76K** defaults to **9600** baud - if you use it, set `GPS_BAUD 9600` in `config.h`. |
+| 3 | **GNSS / GPS module (NMEA, UART)** | 1 | ATGM336H, or **[Seeed L76K GNSS for XIAO](https://www.seeedstudio.com/L76K-GNSS-Module-for-Seeed-Studio-XIAO-p-5864.html)** | The current reference build uses **ATGM336H at 9600 baud** on D7/D6. L76K also defaults to 9600. A Quectel LC29H typically needs `GPS_BAUD 115200` in `config.h`. |
 | 4 | **Passive piezo buzzer** | 1 | **[Seeed Grove Passive Buzzer](https://www.seeedstudio.com/Grove-Passive-Buzzer-p-4525.html)** or any 2-pin passive piezo | *Passive*, not active (see warning above). 3-5 V. |
 | 5 | **2.4 GHz antenna** | 1 | *included with the XIAO ESP32-S3* | Snap onto the IPEX connector - needed for a stable Wi-Fi AP. |
 | 6 | Hook-up wire + soldering iron | - | any | For the GPS and buzzer connections. |
@@ -102,7 +102,7 @@ On power-up the board plays a **boot jingle**, which confirms the buzzer works.
 4. **Solder the buzzer** (signal->D0, other leg->GND).
 5. *(Optional)* swap in the IR-filter-removed lens; *(optional)* connect a LiPo battery.
 6. **Flash** the firmware - prebuilt image or from source, see the
-   [README install section](README.md#install--flash).
+   [README install section](README.md#install-and-flash-xiao-esp32-s3-sense).
 7. Power on: you'll hear the boot jingle, then a Wi-Fi AP appears. Connect and the UI opens.
 
 ---

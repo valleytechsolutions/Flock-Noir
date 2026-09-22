@@ -21,6 +21,7 @@ radio = dict(supported=True, mode='dashboard',channel=1,ble=True,capture=False,
 devices = [dict(mac='B4:1E:52:00:00:01',protocol='WiFi',name='<img src=x onerror=alert(1)>',
                 category='Flock candidate',method='wildcard_probe',tier=3,rssi=-61,ageMs=120,count=2)]
 posts = []
+camera_requests = []
 with sync_playwright() as p:
     options = {'headless':True}
     if os.environ.get('FLOCKNOIR_BROWSER'):
@@ -38,6 +39,11 @@ with sync_playwright() as p:
             return request.fulfill(content_type='text/html',body=(root/'web/index.html').read_text())
         if path == '/logo.png':
             return request.fulfill(content_type='image/png',body=(root/'web/logo.png').read_bytes())
+        if path.startswith('/api/frame.jpg'):
+            camera_requests.append(path)
+            if len(camera_requests)==1:
+                return request.fulfill(status=503,body='No recent frame')
+            return request.fulfill(content_type='image/jpeg',body=(root/'tests/fixtures/jpeg/420.jpg').read_bytes())
         fixtures={'/api/status':status,'/api/radio':radio,'/api/radio/devices':devices,
                   '/api/radio/files':[], '/api/recs':[]}
         return request.fulfill(json=fixtures.get(path,{}))
@@ -82,6 +88,13 @@ with sync_playwright() as p:
     page.reload()
     page.wait_for_function("document.querySelector('#bannerTxt').textContent.includes('IR + RADIO NEARBY')")
     assert page.locator('#radioCard').is_hidden()
+    page.locator('[data-tab=camera]').click()
+    page.locator('#camBtn').click()
+    page.wait_for_function("document.querySelector('#cam').naturalWidth===64")
+    assert len(camera_requests)>=2  # recover while the first camera frame is pending
+    assert page.locator('#cam').evaluate('e=>getComputedStyle(e).imageRendering') == 'auto'
+    page.locator('#camBtn').click()
+    assert page.locator('#cam').get_attribute('src') is None
     radio.update(supported=True, hardware='pi', modeHint='Pi: field mode hops the dedicated monitor adapter. The dashboard hotspot stays on.',
                  detail='Set RADIO_MONITOR_IFACE to a dedicated USB WiFi interface')
     page.reload()
