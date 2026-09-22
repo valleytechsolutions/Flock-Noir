@@ -108,17 +108,9 @@ class Buzzer:
             self.alert_idx = 0
 
     def save(self):
-        os.makedirs(C.DATA_DIR, exist_ok=True)
-        data = {}
-        try:
-            with open(C.SETTINGS_FILE, encoding="utf-8") as f:
-                data = json.load(f)
-        except (OSError, ValueError):
-            data = {}
-        data["buzzer"] = {"enabled": self.enabled, "alertIdx": self.alert_idx,
-                          "tones": [{"name": n, "rtttl": r} for n, r in self.tones]}
-        with open(C.SETTINGS_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=1)
+        from .settings import save_section
+        save_section("buzzer", {"enabled": self.enabled, "alertIdx": self.alert_idx,
+                                "tones": [{"name": n, "rtttl": r} for n, r in self.tones]})
 
     def to_json(self):
         return {"enabled": self.enabled, "alertIdx": self.alert_idx,
@@ -126,6 +118,9 @@ class Buzzer:
                 "tones": [{"name": n, "rtttl": r} for n, r in self.tones]}
 
     # ---- playback -----------------------------------------------------------
+    def is_playing(self):
+        return self._thread is not None and self._thread.is_alive()
+
     def play(self, rtttl):
         notes = parse_rtttl(rtttl)
         if not notes:

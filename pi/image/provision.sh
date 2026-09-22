@@ -20,6 +20,10 @@ echo "== Flock Noir image provisioning =="
 #    systemd is not running (we are in a chroot)
 bash "$REPO/pi/install.sh"
 
+# Exercise the actual ARM-built shared library and Pi APIs before packaging.
+cd "$REPO"
+"$REPO/pi/venv/bin/python" -m unittest discover -s tests -p test_pi.py -v
+
 # 2) hostname
 echo flocknoir > /etc/hostname
 sed -i 's/^127\.0\.1\.1.*/127.0.1.1\tflocknoir/' /etc/hosts || true

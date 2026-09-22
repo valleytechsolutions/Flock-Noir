@@ -71,6 +71,17 @@ with sync_playwright() as p:
     page.reload()
     page.wait_for_function("document.querySelector('#bannerTxt').textContent.includes('IR + RADIO NEARBY')")
     assert page.locator('#radioCard').is_hidden()
+    radio.update(supported=True, hardware='pi', modeHint='Pi: field mode hops the dedicated monitor adapter. The dashboard hotspot stays on.',
+                 detail='Set RADIO_MONITOR_IFACE to a dedicated USB WiFi interface')
+    page.reload()
+    page.locator('[data-tab=wardrive]').click()
+    page.wait_for_function("document.querySelector('#radioModeHint').textContent.includes('hotspot stays on')")
+    assert 'BOOT' not in page.locator('#radioModeHint').text_content()
+    page.locator('#radioMode').select_option('field')
+    page.locator('#radioSave').click()
+    page.wait_for_function("document.querySelector('#toast').textContent.includes('dashboard stays on')")
+    page.set_viewport_size({'width':390,'height':1000})
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+1')
     assert not errors, errors
     browser.close()
 print('UI desktop/mobile, safe rendering, settings POST and Pi capability checks passed')

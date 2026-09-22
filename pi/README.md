@@ -4,10 +4,9 @@
 
 # Flock Noir on Raspberry Pi
 
-*The Raspberry Pi hardware target shares the XIAO web UI, with its existing camera
-and MCP3008 detectors. The XIAO 0.4 radio features and new OPT101 pulse validator
-have not been ported to Pi. Works on any Raspberry Pi with Wi-Fi and a CSI camera; the reference
-build is a **Pi Zero 2 W + Camera Module NoIR v2**.*
+*Flock Noir 0.4.1 for **Pi Zero 2 W + Camera Module NoIR v2**, sharing the XIAO
+web design, native OPT101 pulse validator and radio signature parsers. Pi camera,
+SPI and radio operation still require physical validation on your hardware.*
 
 </div>
 
@@ -35,6 +34,8 @@ build is a **Pi Zero 2 W + Camera Module NoIR v2**.*
 | Passive piezo buzzer (optional) | Signal to **GPIO18**, other leg to **GND**. Passive, not active. |
 | GPS module (optional) | NMEA over UART (GPIO14/15 = /dev/serial0) or USB (/dev/ttyUSB0). |
 | MCP3008 ADC + IR photodiode (optional) | The Pi has no ADC; an MCP3008 on SPI adds the high-accuracy IR photodiode path. |
+| OPT101 module (optional) | Power from 3V3; OUT goes to MCP3008 CH0, never directly to a Pi GPIO. |
+| Monitor-capable USB Wi-Fi adapter (for packet capture) | Separate physical radio from the onboard hotspot; set `RADIO_MONITOR_IFACE`. An OTG adapter may be needed on Zero 2 W. |
 | Power | 5 V 2 A supply, or a USB power bank for the car. |
 
 ## Install
@@ -43,7 +44,8 @@ build is a **Pi Zero 2 W + Camera Module NoIR v2**.*
 
 1. Download `flocknoir-pi.img.xz` from the
    [Releases page](https://github.com/valleytechsolutions/Flock-Noir/releases).
-2. Open **Raspberry Pi Imager**, choose your Pi, then **Use custom** and pick the file.
+2. Choose the **Pi 0.4.1** release, not the XIAO binary or older Pi 0.3 image. Verify its checksum.
+   Open **Raspberry Pi Imager**, choose your Pi, then **Use custom** and pick the file.
    (You can skip Imager's customization; the image is already set up.)
 3. Flash, insert the card with the camera ribbon attached, and power up.
 4. On your phone, join the Wi-Fi **Flock Noir** (password **flocknoir**). The Flock Noir
@@ -159,6 +161,13 @@ MCP3008 pin  ->  Pi header
 ```
 Enable SPI once: `sudo raspi-config` -> Interface Options -> SPI -> Yes.
 
+**OPT101 module wiring (recommended):** module VCC/V+ -> Pi 3V3 (physical pin 1),
+GND -> Pi GND (physical pin 6), OUT -> MCP3008 CH0 (ADC chip pin 1).
+MCP3008 VDD and VREF must both be 3.3 V as shown above. The OPT101 already
+contains its photodiode and amplifier. Match your module's terminal labels;
+breakout terminal order varies. Leave **IR photodiode** off until connected.
+Use an IR-pass optical filter and shield the sensor from direct sunlight.
+
 Each IR receiver is one of these two front ends (same circuits as the XIAO, see
 [HARDWARE.md](../HARDWARE.md)), with its output going to an MCP3008 channel instead of
 an ESP32 pin:
@@ -200,7 +209,7 @@ XIAO), `wardrive/wigle_*.csv`, `videos/rec_*.mp4` (or `.h264` if ffmpeg is absen
 
 | | XIAO ESP32-S3 Sense | Raspberry Pi |
 |---|---|---|
-| Camera | OV2640, IR-cut filter on stock lens, ~40 fps | NoIR, no IR-cut filter, up to 90 fps |
+| Camera | OV2640; about 25 fps measured on the 0.4.1 build | NoIR; configured for 60 fps, hardware rate must be measured |
 | Recording | MJPEG AVI + WAV sidecar | Hardware H.264 mp4; audio muxed in if a USB mic + ffmpeg are present |
 | IR photodiode | Built-in ADC (D1) | Needs an MCP3008 on SPI |
 | Wi-Fi | AP + STA scan (single radio) | NetworkManager hotspot; scans pause while a phone is connected (single radio) |
@@ -217,9 +226,66 @@ XIAO), `wardrive/wigle_*.csv`, `videos/rec_*.mp4` (or `.h264` if ffmpeg is absen
   login shell is disabled (`raspi-config`).
 - **Service logs**: `journalctl -u flocknoir -f`.
 
-## Version scope
+## Radio and OPT101 update (0.4.1)
 
-The 0.4 unified radio implementation targets the XIAO ESP32-S3 Sense. The Pi
-keeps its existing camera/MCP3008 detector and hides the XIAO radio controls.
-For OPT101, use 3.3 V-compatible module power, common ground and OUT to MCP3008
-CH0. The XIAO D1 connection is not a Pi GPIO wiring instruction.
+The Pi now uses the same native C++ pulse and radio parsers as XIAO, compiled by
+the installer. It adds strict pulse-width/duty/regularity checks, clipping and
+sampling-gap rejection, separate latched IR events, fresh GPS checks, WiFi/BLE
+watchlists, target RSSI tones, drone Remote ID and bounded capture files. The
+four-tab design stays the same. Full signature provenance and limitations are
+in [RADIO.md](../docs/RADIO.md); please support
+[Colonel Panic](https://colonelpanic.tech/) and
+[OUI Spy Unified Blue](https://github.com/colonelpanichacks/oui-spy-unified-blue).
+
+### Pi Zero 2 W radio setup
+
+- Onboard WiFi: passive AP surveys when wardriving is enabled and the hotspot
+  has no clients. OUI/SSID matches are labeled `survey_oui` / `survey_ssid`.
+  Survey results are never written as fabricated packets in PCAP captures.
+- Onboard Bluetooth: legacy BLE advertising through BlueZ/HCI (`hci0`), enabled
+  by default. Extended/coded-PHY advertising is not implemented. Controller
+  rejection, absence and disconnects are reported and retried.
+- Packet capture: attach a USB adapter with Linux monitor-mode support, run
+  `iw dev`, and set `RADIO_MONITOR_IFACE = "wlan1"` (use your actual interface)
+  in `pi/config.py`. Keep `AP_IFACE` and `WD_IFACE` on `wlan0`, then restart
+  `flocknoir`. The configured USB interface is made unmanaged by NetworkManager
+  and switched to monitor mode. The application refuses to use the hotspot's
+  physical radio for this purpose. A stock onboard-only setup cannot provide
+  the promiscuous WiFi packet features.
+
+On Pi, **Field** hops the separate monitor adapter across channels 1-11;
+**Dashboard** fixes that adapter to the selected channel. The hotspot stays on
+in both modes. Change back using the web UI; Pi has no XIAO BOOT-button action.
+To return a dedicated adapter to ordinary networking, stop the service and run
+`sudo ip link set wlan1 down`, `sudo iw dev wlan1 set type managed`,
+`sudo ip link set wlan1 up`, then `sudo nmcli device set wlan1 managed yes`.
+
+Captures and candidate logs live in `/var/lib/flocknoir/radio`, accessible from
+the Wardrive tab. WiFi PCAP uses raw 802.11 link type 105 with FCS removed; BLE
+captures are JSONL advertisement bytes. Each capture file stops at 16 MiB.
+Monotonic timestamps describe observation time; UTC is logging time. IR/radio
+co-occurrence within three seconds is supporting evidence, not camera identity.
+
+### Update an existing Pi install
+
+```bash
+cd /opt/flocknoir
+git pull --ff-only
+sudo ./pi/install.sh
+sudo systemctl restart flocknoir
+```
+
+Use your clone directory if it differs. The installer rebuilds the shared parser
+for your Pi architecture and preserves saved settings and logs. A downloaded
+appliance image may not retain Git metadata; in that case clone a fresh copy
+on a network-connected Pi and run its installer to switch the service to it.
+
+### Validation status
+
+Automated tests cover native pulse acceptance/rejection, malformed WiFi/BLE and
+HCI/radiotap input, Remote ID, stale GPS, evidence logs, capture bounds, watchlist
+settings and Flask downloads. Image provisioning repeats these tests against
+the ARM-built library. No Pi is attached in the development session: camera,
+Bluetooth, monitor-adapter compatibility and optical range remain unverified
+on physical Pi hardware. Linux is not hard real time; inspect actual ADC sample
+rate/gaps and validate a known optical pulse source under recording/capture load.

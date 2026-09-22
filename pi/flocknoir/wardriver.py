@@ -1,133 +1,151 @@
-"""Wi-Fi wardriver: `iw` scans -> WiGLE-format CSV (separate log), GPS-tagged.
-
-Single-radio caveat: on a Pi Zero 2 W the hotspot and the scanner share wlan0,
-and a scan interrupts hotspot clients. So we only scan when no station is
-associated with the hotspot (i.e. you are driving with the phone disconnected).
-Use a second USB Wi-Fi adapter (set WD_IFACE) for uninterrupted scanning.
-"""
+"""WiGLE logging from passive surveys and dedicated monitor-radio beacons."""
+from collections import OrderedDict
+import csv
 import os
 import re
 import subprocess
 import threading
 import time
+import uuid
 
 import config as C
-from . import settings
+from . import settings, __version__
 
 
 class Wardriver:
-    def __init__(self, gps):
+    def __init__(self, gps, start=True):
         self._gps = gps
-        self._lock = threading.Lock()
-        self.enabled = bool(settings.load_section("wardrive", {}).get("enabled",
-                                                                       C.WARDRIVE_DEFAULT_ON))
+        self._lock = threading.RLock()
+        self._stop = threading.Event()
+        self.enabled = bool(settings.load_section("wardrive", {}).get("enabled", C.WARDRIVE_DEFAULT_ON))
         self.scanning = False
-        self.logged = 0
-        self.last_total = 0
-        self.new_last = 0
-        self._seen = {}                       # bssid -> last time logged
-        os.makedirs(C.WARDRIVE_DIR, exist_ok=True)
-        self.path = os.path.join(C.WARDRIVE_DIR, "wigle_%d.csv" % int(time.time()))
-        with open(self.path, "w", encoding="utf-8") as f:
-            f.write("WigleWifi-1.4,appRelease=0.3,model=Raspberry Pi,release=0.3,"
-                    "device=%s,display=,board=RaspberryPi,brand=RaspberryPi\n" % C.WIGLE_DEVICE)
-            f.write("MAC,SSID,AuthMode,FirstSeen,Channel,RSSI,CurrentLatitude,"
-                    "CurrentLongitude,AltitudeMeters,AccuracyMeters,Type\n")
-        threading.Thread(target=self._run, daemon=True).start()
+        self.logged = self.last_total = self.new_last = self.errors = 0
+        self.error = ""
+        self._seen = OrderedDict()
+        self.on_scan = None
+        self.path = os.path.join(C.WARDRIVE_DIR, "wigle_"+uuid.uuid4().hex[:12]+".csv")
+        self.ready = False
+        try:
+            os.makedirs(C.WARDRIVE_DIR, exist_ok=True)
+            with open(self.path, "w", encoding="utf-8", newline="") as file:
+                file.write("WigleWifi-1.4,appRelease=%s,model=Raspberry Pi,release=%s,"
+                           "device=%s,display=,board=RaspberryPi,brand=RaspberryPi\n" %
+                           (__version__, __version__, C.WIGLE_DEVICE))
+                file.write("MAC,SSID,AuthMode,FirstSeen,Channel,RSSI,CurrentLatitude,"
+                           "CurrentLongitude,AltitudeMeters,AccuracyMeters,Type\n")
+            self.ready = True
+        except OSError as exc:
+            self.errors += 1
+            self.error = str(exc)
+        if start:
+            threading.Thread(target=self._run, daemon=True, name="wardriver").start()
 
-    def set_enabled(self, e):
-        self.enabled = bool(e)
-        settings.save_section("wardrive", {"enabled": self.enabled})
+    def set_enabled(self, enabled):
+        settings.save_section("wardrive", {"enabled": bool(enabled)})
+        self.enabled = bool(enabled)
 
-    # ---- helpers ----------------------------------------------------------------
+    def stop(self):
+        self._stop.set()
+
     @staticmethod
     def _hotspot_has_clients():
-        try:
-            out = subprocess.run(["iw", "dev", C.AP_IFACE, "station", "dump"],
-                                 capture_output=True, text=True, timeout=5).stdout
-            return "Station " in out
-        except Exception:
+        if C.WD_IFACE != C.AP_IFACE:
             return False
+        try:
+            result = subprocess.run(["iw", "dev", C.AP_IFACE, "station", "dump"],
+                                    capture_output=True, text=True, timeout=5)
+            return result.returncode != 0 or "Station " in result.stdout
+        except OSError:
+            return True
+        except subprocess.TimeoutExpired:
+            return True
 
     @staticmethod
     def _freq_to_channel(mhz):
         if 2412 <= mhz <= 2472:
-            return (mhz - 2407) // 5
+            return (mhz-2407)//5
         if mhz == 2484:
             return 14
-        if 5000 <= mhz <= 5900:
-            return (mhz - 5000) // 5
-        return 0
+        return (mhz-5000)//5 if 5000 <= mhz <= 5900 else 0
 
     @staticmethod
     def _auth(block):
-        if "RSN:" in block and "WPA3" in block.upper() or "SAE" in block:
+        if "SAE" in block:
             return "[WPA3-SAE][ESS]"
         if "RSN:" in block:
             return "[WPA2-PSK-CCMP][ESS]"
         if "WPA:" in block:
             return "[WPA-PSK][ESS]"
-        if "Privacy" in block:
-            return "[WEP][ESS]"
-        return "[ESS]"
+        return "[PRIVACY][ESS]" if "Privacy" in block else "[ESS]"
 
     def _scan(self):
-        try:
-            out = subprocess.run(["iw", "dev", C.WD_IFACE, "scan"],
-                                 capture_output=True, text=True, timeout=20).stdout
-        except Exception:
-            return []
+        result = subprocess.run(["iw", "dev", C.WD_IFACE, "scan", "passive"],
+                                capture_output=True, text=True, timeout=20)
+        if result.returncode:
+            raise OSError(result.stderr.strip()[:160] or "WiFi survey failed")
         aps = []
-        for block in re.split(r"\nBSS ", "\n" + out)[1:]:
-            m = re.match(r"([0-9a-f:]{17})", block, re.I)
-            if not m:
+        for block in re.split(r"\nBSS ", "\n"+result.stdout)[1:]:
+            match = re.match(r"([0-9a-f:]{17})", block, re.I)
+            if not match:
                 continue
-            bssid = m.group(1).lower()
             ssid = re.search(r"\n\s*SSID: (.*)", block)
-            sig = re.search(r"signal: (-?[\d.]+) dBm", block)
-            frq = re.search(r"freq: (\d+)", block)
-            aps.append({
-                "bssid": bssid,
-                "ssid": (ssid.group(1).strip() if ssid else ""),
-                "rssi": int(float(sig.group(1))) if sig else -99,
-                "chan": self._freq_to_channel(int(frq.group(1))) if frq else 0,
-                "auth": self._auth(block),
-            })
+            signal = re.search(r"signal: (-?[\d.]+) dBm", block)
+            frequency = re.search(r"freq: (\d+)", block)
+            aps.append(dict(bssid=match.group(1).lower(), ssid=ssid.group(1).strip()[:128] if ssid else "",
+                            rssi=int(float(signal.group(1))) if signal else -127,
+                            chan=self._freq_to_channel(int(frequency.group(1))) if frequency else 0,
+                            auth=self._auth(block)))
         return aps
 
+    def _record(self, aps, observed):
+        if not self.enabled:
+            return
+        fix = self._gps.fix()
+        now = time.monotonic()
+        if not fix.get("valid") or now-observed > C.GPS_MAX_AGE_S:
+            return
+        with self._lock:
+            self.last_total = len(aps)
+            self.new_last = 0
+            for ap in aps:
+                key = ap["bssid"].lower()
+                if now-self._seen.get(key, -100) < 60:
+                    continue
+                try:
+                    if not self.ready:
+                        raise OSError("WiGLE log unavailable")
+                    with open(self.path, "a", encoding="utf-8", newline="") as file:
+                        csv.writer(file).writerow([key, ap["ssid"], ap["auth"], self._gps.wigle_time(),
+                                                  ap["chan"], ap["rssi"], fix["lat"], fix["lon"],
+                                                  fix.get("alt", 0.), max(1., fix.get("hdop", 2.)*5), "WIFI"])
+                    self._seen[key] = now
+                    self._seen.move_to_end(key)
+                    while len(self._seen) > 2048:
+                        self._seen.popitem(last=False)
+                    self.logged += 1
+                    self.new_last += 1
+                except OSError as exc:
+                    self.errors += 1
+                    self.error = str(exc)
+
+    def observe_passive(self, address, ssid, channel, rssi, privacy, observed):
+        self._record([dict(bssid=address, ssid=ssid, chan=channel, rssi=rssi,
+                           auth="[PRIVACY][ESS]" if privacy else "[ESS]")], observed)
+
     def _run(self):
-        while True:
-            time.sleep(C.WARDRIVE_SCAN_S)
+        while not self._stop.wait(C.WARDRIVE_SCAN_S):
             if not self.enabled or self._hotspot_has_clients():
                 continue
             self.scanning = True
-            aps = self._scan()
-            self.scanning = False
-            fix = self._gps.fix()
-            have_fix = fix.get("valid", False)
-            when = self._gps.wigle_time()
-            now = time.time()
-            new = 0
-            rows = []
-            for ap in aps:
-                if now - self._seen.get(ap["bssid"], 0) < 60:
-                    continue                       # logged within the last minute
-                self._seen[ap["bssid"]] = now
-                new += 1
-                if have_fix:
-                    ssid = ap["ssid"]
-                    if any(c in ssid for c in ',"\n'):
-                        ssid = '"' + ssid.replace('"', '""') + '"'
-                    rows.append("%s,%s,%s,%s,%d,%d,%.6f,%.6f,%.1f,%.1f,WIFI\n" % (
-                        ap["bssid"], ssid, ap["auth"], when, ap["chan"], ap["rssi"],
-                        fix.get("lat", 0.0), fix.get("lon", 0.0), fix.get("alt", 0.0), 10.0))
-            with self._lock:
+            try:
+                aps = self._scan()
+                self.error = ""
                 self.last_total = len(aps)
-                self.new_last = new
-                if rows:
-                    try:
-                        with open(self.path, "a", encoding="utf-8") as f:
-                            f.writelines(rows)
-                        self.logged += len(rows)
-                    except OSError:
-                        pass
+                if self.on_scan:
+                    for ap in aps:
+                        self.on_scan(ap)
+                self._record(aps, time.monotonic())
+            except (OSError, subprocess.TimeoutExpired, ValueError) as exc:
+                self.error = str(exc)
+            finally:
+                self.scanning = False

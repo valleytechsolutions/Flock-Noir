@@ -7,7 +7,7 @@ measure the interval between them (target ~100 ms) and the duty cycle (target
 """
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import config as C
 
@@ -30,13 +30,17 @@ class Detector:
         self._scanned = max(1, scanned_pixels)
         self._buf = deque(maxlen=C.SAMPLE_BUFFER)   # (t_us, level, blobPx)
         self._last = DetectionResult()
+        self._fed_at = 0.0
 
     def feed(self, level: int, blob_px: int, t_us: int | None = None):
         if t_us is None:
             t_us = time.monotonic_ns() // 1000
         self._buf.append((t_us, int(level), int(blob_px)))
+        self._fed_at = time.monotonic()
 
     def last(self) -> DetectionResult:
+        if time.monotonic()-self._fed_at > 0.35:
+            return replace(self._last, detected=False)
         return self._last
 
     def snapshot(self, max_n: int = 64) -> list[int]:
@@ -136,7 +140,9 @@ class Detector:
         # a strobe is short-on and metronome-regular; noise is ~50% duty and ragged.
         r.detected = (cycles_in_tol >= C.MIN_GOOD_CYCLES and
                       period_score >= C.PERIOD_SCORE_MIN and
-                      r.dutyCycle <= C.DUTY_MAX and
+                      C.DUTY_MIN <= r.dutyCycle <= C.DUTY_MAX and
+                      r.blobFrac <= C.BLOB_MAX_FRACTION and
+                      have_rise and samples[-1][0]-last_rise <= 350000 and
                       r.jitter <= C.JITTER_MAX and
                       r.confidence >= C.DETECT_CONFIDENCE)
         self._last = r

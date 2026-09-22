@@ -133,9 +133,11 @@ sensor is wired. It builds on research from [Noflock/Flock-IR-Detection](https:/
 ## Hardware targets
 
 Flock Noir has XIAO and Raspberry Pi targets that share the web UI
-(`web/index.html`). The **0.4 radio scanning and OPT101 pulse-validation update is
-currently XIAO ESP32-S3 Sense only**. The Pi retains its existing camera and
-MCP3008 detector implementation; it does not implement the new radio features.
+(`web/index.html`) and native pulse/radio parsers. Both have 0.4.1 detection,
+watchlists, evidence logs and capture downloads. The **Pi Zero 2 W** uses an
+MCP3008 for OPT101 input and a dedicated monitor-capable USB WiFi adapter for
+passive packet capture; onboard WiFi supports surveys and the hotspot, and
+onboard Bluetooth supports legacy BLE scanning. See [Pi setup](pi/README.md).
 There is currently **no ESP32-CAM build**. The XIAO binary cannot run on ESP32-CAM.
 
 | Target | Camera | Notes |

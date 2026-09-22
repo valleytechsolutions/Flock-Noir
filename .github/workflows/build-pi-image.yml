@@ -12,7 +12,7 @@ name: Build Raspberry Pi image
 on:
   workflow_dispatch:
   push:
-    tags: ["v*"]
+    tags: ["v*", "pi-v*"]
 
 permissions:
   contents: write
@@ -53,10 +53,12 @@ jobs:
             flocknoir-pi.img.xz.sha256
 
       - name: Attach to the GitHub Release (tag builds only)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/pi-v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
             flocknoir-pi.img.xz
             flocknoir-pi.img.xz.sha256
           generate_release_notes: true
+          name: Flock Noir ${{ github.ref_name }} - Raspberry Pi Zero 2 W
+          body_path: pi/image/RELEASE.md

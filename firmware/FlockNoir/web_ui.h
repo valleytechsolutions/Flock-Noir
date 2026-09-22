@@ -265,7 +265,7 @@ footer .spacer{flex:1}
   <section id="wardrive" hidden>
     <div class="card" id="radioCard" hidden>
       <div class="row-head"><strong>Radio intelligence</strong><span style="flex:1"></span><span id="radioHealth" class="dim"></span></div>
-      <div class="hint">Passive WiFi and BLE signatures, drone Remote ID, and IR evidence in one session.
+      <div class="hint" id="radioModeHint">Passive WiFi and BLE signatures, drone Remote ID, and IR evidence in one session.
         <b>Field mode turns off the hotspot</b> and hops channels 1-11. Hold <b>BOOT for 1.5 seconds</b>
         to restore this dashboard. IR sampling continues in both modes.</div>
       <div class="grid">
@@ -495,13 +495,15 @@ setInterval(tick,500); tick();
 
 /* ---- radio controls; shared Pi UI hides unsupported hardware ---- */
 function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-let radioLoaded=false,radioBusy=false;
+let radioLoaded=false,radioBusy=false,radioHardware='xiao';
 async function pollRadio(){
   if(radioBusy)return;radioBusy=true;
   try{
     const response=await fetch('/api/radio',{cache:'no-store'});
     if(!response.ok)return;
     const r=await response.json();if(!r.supported)return;
+    radioHardware=r.hardware||'xiao';
+    if(r.modeHint)$('#radioModeHint').textContent=r.modeHint;
     $('#radioCard').hidden=false;
     if(!radioLoaded){
       $('#radioMode').value=r.mode;$('#radioChannel').value=r.channel;
@@ -511,7 +513,7 @@ async function pollRadio(){
     $('#radioHealth').textContent=r.mode+' | channel '+r.channel;
     $('#radioCounts').textContent='Packets '+r.packets+' | queue drops '+r.dropped+' | SD errors '+r.logErrors+
       (r.wifiReady?'':' | WiFi unavailable')+(r.ble && !r.bleReady?' | BLE unavailable':'')+
-      (r.captureFull?' | Capture limit reached':'');
+      (r.captureFull?' | Capture limit reached':'')+(r.detail?' | '+r.detail:'');
     if(!$('#wardrive').hidden){
       const devices=await (await fetch('/api/radio/devices',{cache:'no-store'})).json();
       $('#radioRows').innerHTML=devices.sort((a,b)=>b.tier-a.tier||a.ageMs-b.ageMs).slice(0,64).map(d=>
@@ -528,7 +530,7 @@ $('#radioSave').onclick=async()=>{
   try{
     const response=await fetch('/api/radio',{method:'POST',body});
     if(!response.ok){toast('Invalid radio settings or storage failure');return;}
-    toast($('#radioMode').value==='field'?'Field mode: hold BOOT to return':'Radio settings saved');
+    toast($('#radioMode').value==='field'?(radioHardware==='pi'?'Monitor adapter hopping; dashboard stays on':'Field mode: hold BOOT to return'):'Radio settings saved');
   }catch(e){toast('Could not save radio settings');}
 };
 $('#radioFilesBtn').onclick=async()=>{

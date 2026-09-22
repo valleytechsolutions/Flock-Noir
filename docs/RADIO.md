@@ -1,11 +1,13 @@
-# Radio and IR detection in Flock Noir 0.4
+# Radio and IR detection in Flock Noir 0.4.1
 
 The XIAO ESP32-S3 Sense build combines OPT101 pulse sampling, OV2640 camera
 analysis, passive WiFi observations, BLE advertisements, GPS and SD logging.
-The original four-tab interface remains the control panel. The Pi build retains
-its existing camera/ADC implementation; this radio integration is XIAO-specific.
+The original four-tab interface remains the control panel. Pi 0.4.1 shares the
+native pulse/radio parsers and APIs, with MCP3008 input, legacy BLE HCI scanning,
+and a separate monitor-capable USB WiFi adapter for passive packets. See
+[Pi Zero 2 W setup](../pi/README.md#radio-and-opt101-update-041).
 
-## Operating modes
+## XIAO operating modes
 
 | Mode | WiFi | BLE | IR / camera | Dashboard |
 |---|---|---|---|---|
@@ -24,6 +26,13 @@ transmits beacons in Dashboard mode, so that mode is not radio-silent. Field mod
 does not start an AP, associate with networks, send WiFi probes or BLE scan
 requests. It receives management/data frames and BLE advertisements. No 5/6 GHz,
 cellular reception, encrypted payload decryption, or connected BLE traffic.
+
+On Pi, field mode hops the dedicated USB monitor adapter and leaves the
+onboard hotspot running. Dashboard mode fixes the monitor channel. Without a
+monitor adapter, onboard WiFi surveys still report OUI/SSID candidates when
+wardriving is enabled and no hotspot clients are present. Survey evidence is
+explicitly labeled and is never synthesized into captured packets. Pi radio
+queues hold 256 observations and its live table holds at most 128 devices.
 
 ## Features and provenance
 

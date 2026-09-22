@@ -13,6 +13,7 @@ LOG_DIR    = os.path.join(DATA_DIR, "logs")            # IR detection CSVs
 WARDRIVE_DIR = os.path.join(DATA_DIR, "wardrive")      # WiGLE CSVs
 REC_DIR    = os.path.join(DATA_DIR, "videos")          # recordings
 SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
+RADIO_DIR = os.path.join(DATA_DIR, "radio")
 
 # ---- web --------------------------------------------------------------------
 WEB_PORT   = int(os.environ.get("FLOCKNOIR_PORT", "80"))
@@ -63,6 +64,7 @@ DEFAULT_TONES = [
 # /dev/ttyUSB0 or /dev/ttyACM0. Set GPS_PORT = None to disable.
 GPS_PORT = "/dev/serial0"
 GPS_BAUD = 9600                # ATGM336H / L76K = 9600; Quectel LC29H = 115200
+GPS_MAX_AGE_S = 3.0
 
 # ---- Wi-Fi wardriver (optional, off by default) ------------------------------
 # NOTE: a Pi Zero 2 W has ONE radio. Scanning while hosting the hotspot will
@@ -78,14 +80,28 @@ WIGLE_DEVICE    = "FlockNoir-Pi"
 # Use an MCP3008 on SPI (gpiozero supports it directly). Off by default.
 IR_ENABLED_DEFAULT = False
 IR_ADC_CHANNEL     = 0
+IR_SPI_BUS, IR_SPI_DEVICE = 0, 0  # SPI0 CE0: BCM11/9/10/8 (SCLK/MISO/MOSI/CS)
 IR_SAMPLE_HZ       = 1000
-IR_REFRACTORY_MS   = 15
-IR_MIN_HZ, IR_MAX_HZ = 5.0, 15.0
+IR_MIN_HZ, IR_MAX_HZ = 8.0, 12.0
 IR_REQUIRED_INTERVALS = 4
-IR_ACTIVE_WINDOW_MS   = 2500
+IR_ACTIVE_WINDOW_MS   = 300
+IR_DUTY_MIN, IR_DUTY_MAX = 0.10, 0.30
+IR_PULSE_MIN_MS, IR_PULSE_MAX_MS = 8, 35
+IR_MAX_SAMPLE_GAP_US = 5000
 IR_THR_IDLE   = 120            # in 12-bit counts (MCP3008 is 10-bit; scaled)
 IR_THR_LOCKED = 70
-IR_BASELINE_ALPHA = 0.002
+
+# ---- passive radio capture --------------------------------------------------
+# Set a dedicated monitor-capable USB adapter, e.g. wlan1, on a different
+# physical radio from AP_IFACE. The hotspot interface is never repurposed.
+# Empty disables WiFi packet capture; BLE still works independently.
+RADIO_MONITOR_IFACE = os.environ.get("FLOCKNOIR_MONITOR_IFACE", "")
+RADIO_HCI_INDEX = int(os.environ.get("FLOCKNOIR_HCI_INDEX", "0"))
+RADIO_BLE_DEFAULT = True
+RADIO_CHANNELS = tuple(range(1, 12))
+RADIO_DWELL_S = 0.35
+RADIO_CAPTURE_LIMIT = 16 * 1024 * 1024
+RADIO_DEVICE_LIMIT = 128
 
 # ---- recording ---------------------------------------------------------------
 REC_BITRATE = 2_000_000

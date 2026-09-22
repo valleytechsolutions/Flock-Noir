@@ -38,6 +38,13 @@ Use its flasher for OUI Spy hardware/software, not for this Flock Noir build.
   photodiode/amplifier specifications and pin wiring.
 - [Seeed Studio](https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/):
   XIAO ESP32-S3 Sense hardware documentation.
+- [BlueZ](https://github.com/bluez/bluez): Linux Bluetooth tooling and public HCI
+  definitions used by the Pi transport. No BlueZ application source is copied.
+- [Radiotap](https://www.radiotap.org/): packet metadata format for the Pi monitor
+  adapter transport, implemented independently for the fields used here.
+
+Pi 0.4.1 compiles Flock Noir's own shared `pulse_detector.h` and
+`radio_protocol.h`; these use the same research credits as the XIAO target.
 
 ## Existing project credits
 

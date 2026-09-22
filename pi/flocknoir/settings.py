@@ -2,6 +2,7 @@
 import json
 import os
 import threading
+import tempfile
 
 import config as C
 
@@ -26,5 +27,13 @@ def save_section(name, value):
         except (OSError, ValueError):
             data = {}
         data[name] = value
-        with open(C.SETTINGS_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=1)
+        fd, path = tempfile.mkstemp(prefix="settings-", suffix=".json", dir=C.DATA_DIR)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=1)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(path, C.SETTINGS_FILE)
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)

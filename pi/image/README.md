@@ -17,8 +17,8 @@ boot, and join the **Flock Noir** Wi-Fi. No setup steps.
 
 ## Getting the image
 
-- **Releases:** every tagged release (`v*`) has `flocknoir-pi.img.xz` and a `.sha256`
-  attached.
+- **Releases:** Pi tags (`pi-v*`, or older `v*`) contain `flocknoir-pi.img.xz`
+  and its checksum. XIAO tags (`xiao-v*`) contain ESP32 firmware, not Pi images.
 - **Any time:** Actions -> "Build Raspberry Pi image" -> Run workflow -> download the
   artifact. (Building takes roughly 30-60 minutes under emulation.)
 
@@ -26,7 +26,8 @@ boot, and join the **Flock Noir** Wi-Fi. No setup steps.
 
 `pguyot/arm-runner-action` downloads the base image, grows it, mounts it, copies this
 repo to `/opt/flocknoir`, and runs `pi/image/provision.sh` inside it with QEMU. That
-script calls the normal `pi/install.sh`, then applies the appliance settings above,
+script calls the normal `pi/install.sh`, builds the native parser for ARM,
+runs the Pi regression suite, then applies the appliance settings above,
 cleans apt/pip caches, and the action shrinks the image back down before it is
 xz-compressed and published.
 

@@ -3,11 +3,14 @@ firmware, so web/index.html works unchanged on both hardware targets."""
 import os
 import shutil
 import time
+from pathlib import Path
+import re
 
 from flask import (Flask, Response, jsonify, redirect, request, send_file,
                    send_from_directory, abort)
 
 import config as C
+from . import __version__
 
 
 def create_app(ctx):
@@ -21,7 +24,64 @@ def create_app(ctx):
 
     @app.get("/api/radio")
     def radio_capabilities():
-        return jsonify(supported=False)
+        return jsonify(ctx.radio.status())
+
+    @app.post("/api/radio")
+    def radio_settings():
+        try:
+            ctx.radio.configure(request.form.get("mode", ""), request.form.get("ble") == "1",
+                                request.form.get("capture") == "1", request.form.get("watch", ""),
+                                request.form.get("target", ""), request.form.get("channel", "0"))
+            return jsonify(ok=True)
+        except (ValueError, OSError) as exc:
+            return jsonify(ok=False, error=str(exc)), 400
+
+    @app.get("/api/radio/devices")
+    def radio_devices():
+        return jsonify(ctx.radio.rows())
+
+    @app.post("/api/radio/clear")
+    def radio_clear():
+        ctx.radio.clear_live()
+        return jsonify(ok=True)
+
+    def radio_download(name):
+        if not re.fullmatch(r"(?:events_|wifi_|ble_)[A-Za-z0-9_-]+\.(?:jsonl|pcap)", name):
+            abort(400)
+        path = Path(C.RADIO_DIR)/name
+        if path.resolve().parent != Path(C.RADIO_DIR).resolve() or not path.is_file():
+            abort(404)
+        return send_file(path, as_attachment=True, download_name=name)
+
+    @app.get("/api/radio/file")
+    def radio_file():
+        return radio_download(request.args.get("name", ""))
+
+    @app.get("/api/radio/log")
+    def radio_log():
+        return radio_download(ctx.radio.paths["log"].name)
+
+    @app.get("/api/radio/pcap")
+    def radio_pcap():
+        return radio_download(ctx.radio.paths["pcap"].name)
+
+    @app.get("/api/radio/ble")
+    def radio_ble():
+        return radio_download(ctx.radio.paths["ble"].name)
+
+    @app.get("/api/radio/files")
+    def radio_files():
+        directory = Path(C.RADIO_DIR)
+        files = []
+        try:
+            for path in sorted(directory.iterdir(), key=lambda p: p.name, reverse=True):
+                if path.is_file() and path.suffix in (".pcap", ".jsonl") and not path.is_symlink():
+                    files.append(dict(name=path.name, size=path.stat().st_size))
+                if len(files) >= 100:
+                    break
+        except OSError:
+            pass
+        return jsonify(files)
 
     @app.get("/logo.png")
     def logo():
@@ -41,7 +101,8 @@ def create_app(ctx):
         j = {
             "detected": d.detected, "freq": round(d.freqHz, 2), "duty": round(d.dutyCycle, 3),
             "confidence": round(d.confidence, 3), "fps": round(cam.fps, 1),
-            "sd": True, "logged": log.count,
+            "sd": log.ready, "logged": log.count, "logErrors": log.errors,
+            "version": __version__, "cameraReady": cam.ok,
             "fix": bool(fix.get("valid")), "buzzer": buz.enabled,
             "wd": wd.enabled, "wdScan": wd.scanning, "wdLogged": wd.logged,
             "wdTotal": wd.last_total, "wdNew": wd.new_last,
@@ -54,7 +115,11 @@ def create_app(ctx):
             "irEn": ir.enabled, "irDet": irr["detected"], "irPresent": irr["present"],
             "irFreq": round(irr["freqHz"], 1), "irDuty": round(irr["dutyCycle"], 3),
             "irAmp": irr["amp"], "irWave": ir.snapshot(64),
-            "muted": state["muted"], "uptime": int(time.time() - state["start"]),
+            "irRaw": irr["raw"], "irBaseline": irr["baseline"], "irClipped": irr["clipped"],
+            "irPulseMs": irr["pulseMs"], "irSampleHz": irr["sampleHz"], "irGaps": irr["gaps"],
+            "irNoise": irr["noise"], "irDroppedEvents": irr["droppedEvents"],
+            "radioNearby": ctx.radio.recent_alpr(), "irError": ir.error,
+            "muted": state["muted"], "uptime": int(time.monotonic() - state["start"]),
             "sdFree": sd_free, "sdTotal": sd_total,
             "recent": log.recent_list(),
         }

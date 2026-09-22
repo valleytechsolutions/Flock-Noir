@@ -6,7 +6,7 @@ that is connected but has no satellites still shows chars climbing.
 """
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import config as C
 
@@ -26,6 +26,7 @@ class GPS:
         self.fail = 0
         self._fix = {}          # lat, lon, alt, sats, hdop, time (datetime)
         self._valid = False
+        self._fix_at = self._time_at = 0.0
         self._t = threading.Thread(target=self._run, daemon=True)
         if _HAVE and C.GPS_PORT:
             self._t.start()
@@ -44,7 +45,7 @@ class GPS:
                         if not line.startswith("$"):
                             continue
                         try:
-                            msg = pynmea2.parse(line)
+                            msg = pynmea2.parse(line, check=True)
                         except Exception:
                             with self._lock:
                                 self.fail += 1
@@ -62,9 +63,10 @@ class GPS:
                 q = int(msg.gps_qual or 0)
             except ValueError:
                 q = 0
-            if q > 0 and msg.latitude and msg.longitude:
+            self._valid = q > 0
+            if self._valid:
                 self._fix.update(lat=float(msg.latitude), lon=float(msg.longitude))
-                self._valid = True
+                self._fix_at = time.monotonic()
             try:
                 self._fix["sats"] = int(msg.num_sats or 0)
             except ValueError:
@@ -78,13 +80,15 @@ class GPS:
             except (ValueError, TypeError):
                 pass
         elif t == "RMC":
-            if getattr(msg, "status", "") == "A" and msg.latitude and msg.longitude:
+            self._valid = getattr(msg, "status", "") == "A"
+            if self._valid:
                 self._fix.update(lat=float(msg.latitude), lon=float(msg.longitude))
-                self._valid = True
+                self._fix_at = time.monotonic()
             if getattr(msg, "datestamp", None) and getattr(msg, "timestamp", None):
                 try:
                     self._fix["time"] = datetime.combine(msg.datestamp, msg.timestamp,
                                                          tzinfo=timezone.utc)
+                    self._time_at = time.monotonic()
                 except Exception:
                     pass
 
@@ -92,7 +96,8 @@ class GPS:
     def fix(self):
         with self._lock:
             d = dict(self._fix)
-            d["valid"] = self._valid
+            d["valid"] = self._valid and time.monotonic()-self._fix_at <= C.GPS_MAX_AGE_S
+            d["age"] = time.monotonic()-self._fix_at
             return d
 
     def health(self):
@@ -102,8 +107,9 @@ class GPS:
     def iso_utc(self):
         f = self.fix()
         t = f.get("time")
-        if t:
-            return t.strftime("%Y-%m-%dT%H:%M:%SZ")
+        elapsed = time.monotonic()-self._time_at
+        if t and elapsed <= C.GPS_MAX_AGE_S:
+            return (t+timedelta(seconds=elapsed)).strftime("%Y-%m-%dT%H:%M:%SZ")
         # fall back to the Pi's own clock (usually NTP-set, or RTC)
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 

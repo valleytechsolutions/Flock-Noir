@@ -13,6 +13,11 @@ build_out/
 pi/venv/
 __pycache__/
 *.pyc
+pi/flocknoir/native_core.so
+pi/flocknoir/native_core.dll
+pi/flocknoir/native_core.lib
+pi/flocknoir/core.lib
+pi/flocknoir/native_core.pdb
 
 # OS cruft
 .DS_Store

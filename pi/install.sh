@@ -23,17 +23,20 @@ apt-get update
 apt-get install -y --no-install-recommends \
   python3 python3-venv python3-pip \
   python3-picamera2 python3-numpy python3-pil python3-gpiozero python3-serial \
-  python3-flask iw ffmpeg openssl git
+  python3-flask iw ffmpeg openssl git g++ bluez network-manager
 
 echo "== python venv (system site packages for picamera2/gpiozero/numpy) =="
 if [ ! -x "$PI_DIR/venv/bin/python" ]; then
   python3 -m venv --system-site-packages "$PI_DIR/venv"
 fi
 "$PI_DIR/venv/bin/pip" install --quiet --upgrade pip
-"$PI_DIR/venv/bin/pip" install --quiet pynmea2
+"$PI_DIR/venv/bin/pip" install --quiet pynmea2==1.19.0
+
+echo "== shared native pulse and radio parsers =="
+python3 "$REPO_DIR/tools/build_pi_native.py"
 
 echo "== data directory =="
-mkdir -p "$DATA_DIR"/{logs,wardrive,videos}
+mkdir -p "$DATA_DIR"/{logs,wardrive,videos,radio}
 
 echo "== systemd service =="
 sed "s|__PI__|$PI_DIR|g" "$PI_DIR/flocknoir.service" > /etc/systemd/system/flocknoir.service
