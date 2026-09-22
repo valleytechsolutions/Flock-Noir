@@ -55,7 +55,10 @@ with sync_playwright() as p:
     assert any('target=AA%3ABB%3ACC%3ADD%3AEE%3AFF' in body for body in posts)
     for width in (1100,390):
         page.set_viewport_size({'width':width,'height':1000})
-        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+1')
+        overflow = page.evaluate("""[...document.querySelectorAll('body *')]
+            .filter(e=>e.getBoundingClientRect().right>innerWidth+1 && e.getBoundingClientRect().width)
+            .map(e=>[e.tagName,e.id,e.className,e.getBoundingClientRect().right]).slice(0,20)""")
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+1'), (width,overflow)
     page.set_viewport_size({'width':1100,'height':1000})
     # Synthetic preview, stored outside the repo unless explicitly requested.
     if os.environ.get('FLOCKNOIR_SCREENSHOT'):
