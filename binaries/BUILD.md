@@ -34,12 +34,14 @@ Validation on September 22, 2026:
   settings submission, IR/radio banner and Pi capability fallback.
 
 On the connected XIAO ESP32-S3 Sense, flash hashes verified and a 30-second
-hardware check passed with VGA capture at 25.0 fps and actual analysis at
-25.0-25.1 fps, zero frame errors, ADC sampling at 1000 Hz, WiFi/BLE scanning
-active, zero dropped radio packets, SD mounted, and
+hardware check passed with VGA capture around 24-25 fps and actual analysis at
+22.9-25.0 fps, zero frame errors, ADC sampling at 1000 Hz, WiFi/BLE scanning
+active, no additional dropped radio packets during the check, SD mounted, and
 new valid ATGM336H messages with zero checksum failures. GPS had no satellite
 fix during the check. OPT101 was not wired, so its detection toggle stayed off;
 ADC activity does not establish optical detection or sensor connection.
+The cumulative radio drop counter was 743 before the measurement and stayed
+unchanged; this is not a claim of lossless reception from startup or in the field.
 A USB JPEG snapshot was visually checked for corruption. The Mario test command
 was accepted by the board; physical audibility cannot be measured over USB.
 
