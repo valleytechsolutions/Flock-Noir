@@ -173,6 +173,11 @@ int main() {
     assert(f.mask==15 && !strcmp(f.method(),"ir+camera+ble+wifi"));
     assert(!strcmp(f.assessment(),"multiple_sources_nearby"));
     assert(!t.snapshot(4251).mask);
+    t.observe(AlprFusion::Wifi,2000,1);
+    assert(t.snapshot(4100).radioTier==3); // weak newer hint cannot hide strong evidence
+    assert(t.snapshot(4251).radioTier==1); // strong tier expires on its own timestamp
+    t.observe(AlprFusion::Wifi,4800,1);
+    assert(t.snapshot(4801).radioTier==1); // weaker packets cannot extend the strong tier
     t.clear();t.observe(AlprFusion::Wifi,0xfffffff0,3);t.observe(AlprFusion::Ir,0x10);
     assert(t.snapshot(0x20).mask==9);
     t.observe(AlprFusion::Ir,0xfffffff1); // older queue item cannot replace fresh

@@ -95,6 +95,15 @@ class PiTests(unittest.TestCase):
         self.assertEqual(native.fusion([0,0,0,-1],[0,0,1,0])["assessment"],"possible_camera")
         self.assertEqual(native.fusion([-1,-1,3001,-1],[0,0,3,0])["mask"],0)
 
+    def test_new_weak_hint_does_not_hide_recent_stronger_evidence(self):
+        when = time.monotonic()
+        self.radio.devices["strong"] = dict(alpr=True, tier=3, protocol="wifi", matched=when)
+        self.radio.devices["weak"] = dict(alpr=True, tier=1, protocol="wifi", matched=when+1)
+        self.assertEqual(self.radio.fusion(when+2)["radioTier"],3)
+        self.assertEqual(self.radio.fusion(when+3.1)["radioTier"],1)
+        self.radio.devices["weak"]["matched"] = when+4
+        self.assertEqual(self.radio.fusion(when+4.1)["radioTier"],1)
+
     def test_profile_filters_sounds_not_logs_and_persists(self):
         self.state["muted"] = False
         self.assertEqual(self.client.post("/api/profile",data={"profile":"alpr"}).status_code,200)
@@ -228,7 +237,7 @@ class PiTests(unittest.TestCase):
         self.assertEqual(row["evidence"], "ir_timing_match")
         data = self.client.get("/api/status").get_json()
         self.assertFalse(data["irEn"])
-        self.assertEqual(data["version"], "0.5.0")
+        self.assertEqual(data["version"], "0.5.1")
         self.assertNotIn("NaN", self.client.get("/api/status").text)
 
     def test_radio_api_and_real_capture_format(self):

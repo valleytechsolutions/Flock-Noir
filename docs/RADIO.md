@@ -1,8 +1,8 @@
-# Radio and IR detection in Flock Noir 0.5.0
+# Radio and IR detection in Flock Noir 0.5.1
 
 The XIAO ESP32-S3 Sense build combines OPT101 pulse sampling, OV2640 camera
 analysis, passive WiFi observations, BLE advertisements, GPS and SD logging.
-The original visual style remains, with dedicated ALPR and Scanner tabs. Pi 0.5.0 shares the
+The original visual style remains, with dedicated ALPR and Scanner tabs. Pi 0.5.1 shares the
 native pulse/radio parsers and APIs, with MCP3008 input, legacy BLE HCI scanning,
 and a separate monitor-capable USB WiFi adapter for passive packets. See
 [Pi Zero 2 W setup](../pi/README.md#radio-and-opt101-update-044).
@@ -305,12 +305,13 @@ fingerprint, plus passive BLE accessory signatures. The XIAO still shares
 one radio between WiFi and BLE; coverage is intermittent while hopping.
 
 
-## ALPR focus and evidence fusion (0.5.0)
+## ALPR focus and evidence fusion (0.5.1)
 
 The ALPR tab lists only ALPR radio candidates and shows four evidence sources:
 OPT101 timing, camera pulse pattern, Flock BLE and Flock WiFi/OUI. The shared C++
 `AlprFusion::Tracker` accepts timestamps in either arrival order and expires each
-source after 3 seconds. The Pi uses the same assessment implementation through
+source after 3 seconds. Radio tiers have separate timestamps, so a newer weak
+hint cannot hide a still-recent strong signature or extend its lifetime. The Pi uses the same assessment implementation through
 its native library. Delayed queue items cannot replace newer XIAO evidence;
 unsigned timestamp differences handle millis rollover.
 

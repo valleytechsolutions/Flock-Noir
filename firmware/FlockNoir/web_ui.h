@@ -389,7 +389,7 @@ footer .spacer{flex:1}
 <footer>
   <span class="sig">- Your Pal <b>Kal</b></span>
   <span class="spacer"></span>
-  <span>Flock Noir v0.5.0</span>
+  <span>Flock Noir v0.5.1</span>
 </footer>
 
 <div class="toast" id="toast"></div>

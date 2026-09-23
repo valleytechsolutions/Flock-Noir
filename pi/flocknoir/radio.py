@@ -93,8 +93,11 @@ class Radio:
                     continue
                 i = 2 if d["protocol"] == "ble" else 3
                 at = d.get("matched", 0)
+                if abs(when-at)>3:
+                    continue
+                tiers[i] = max(tiers[i], d["tier"])
                 if stamps[i] is None or at > stamps[i]:
-                    stamps[i], tiers[i] = at, d["tier"]
+                    stamps[i] = at
             ages = [min(0x7fffffff, int(abs(when-at)*1000)) if at is not None else -1 for at in stamps]
             return native.fusion(ages, tiers)
 

@@ -56,7 +56,7 @@ settings. The installer uses split images that exclude NVS. It cannot distinguis
 board models sharing the S3 chip: this image is only for the XIAO Sense.
 The Pi Zero 2 W uses its [own image](pi/README.md); ESP32-CAM is not supported.
 
-## ALPR focus and General scan (0.5.0)
+## ALPR focus and General scan (0.5.1)
 
 The **ALPR tab** combines OPT101 pulse timing, OV2640 camera patterns, Flock-You
 OUI/probe rules and BLE signatures. Four evidence indicators show matches within
@@ -78,7 +78,7 @@ Biscuit's documented BLE name and service are supported, with an editable sound.
 The service UUID alone is shared with an Arduino example and is not a Biscuit match.
 Pineapple Pager is covered only by recognizable Pineapple-family AP names; no
 unique Pager-model signature is claimed. Renamed, silent or out-of-band devices
-can be missed. See [evidence and coverage](docs/RADIO.md#alpr-focus-and-evidence-fusion-050).
+can be missed. See [evidence and coverage](docs/RADIO.md#alpr-focus-and-evidence-fusion-051).
 
 OPT101 **OUT → D1/GPIO2**, **VCC → 3V3**, **GND → GND**. D1 is the second left
 pin with USB at the top and the component side facing you. Enable the sensor in
@@ -187,7 +187,7 @@ sensor is wired. It builds on research from [Noflock/Flock-IR-Detection](https:/
 ## Hardware targets
 
 Flock Noir has XIAO and Raspberry Pi targets that share the web UI
-(`web/index.html`) and native pulse/radio parsers. Both have 0.5.0 detection,
+(`web/index.html`) and native pulse/radio parsers. Both have 0.5.1 detection,
 watchlists, evidence logs and capture downloads. The **Pi Zero 2 W** uses an
 MCP3008 for OPT101 input and a dedicated monitor-capable USB WiFi adapter for
 passive packet capture; onboard WiFi supports surveys and the hotspot, and

@@ -75,7 +75,7 @@ Flock Noir's original code remains under [LICENSE](LICENSE). Dependencies retain
 their own licenses. Credits do not replace any upstream license requirements.
 
 
-## Browser installer and additional signature references (0.5.0)
+## Browser installer and additional signature references (0.5.1)
 
 - [ESP Web Tools](https://github.com/esphome/esp-web-tools), ESPHome contributors,
   Apache-2.0: externally loaded, pinned to 10.4.0. Its installer and license

@@ -1,10 +1,13 @@
-# Flock Noir 0.5.0 - XIAO ESP32-S3 Sense
+# Flock Noir 0.5.1 - XIAO ESP32-S3 Sense
 
 [Open the web flasher](https://valleytechsolutions.github.io/Flock-Noir/)
 using desktop Chrome or Edge and a USB data cable. On an update leave Erase
 device unchecked to retain settings. The installer writes separate parts that
 exclude NVS. The downloadable merged image is for flashing at 0x0 and includes
 NVS padding; it can reset settings. Its SHA-256 is in the adjacent checksum file.
+
+Strong radio evidence now expires independently of newer weak hints, so a weak
+packet cannot hide a recent strong match or keep it alive indefinitely.
 
 This release adds an ALPR focus profile, a dedicated General Scanner tab,
 four-source evidence ages and combined IR/camera/BLE/WiFi CSV methods. Focus
@@ -39,7 +42,7 @@ Validation on September 23, 2026:
   pioarduino 55.03.39, Arduino ESP32 3.3.9 and TinyGPSPlus 1.0.3.
 - Host C++ tests passed: optical pulse rules, all 34 OUI roles, malformed
   packets, device classifications, source fusion, expiry and timestamp rollover.
-- 28 Pi tests passed, including both fusion arrival orders, combined CSV,
+- 29 Pi tests passed, including both fusion arrival orders, combined CSV,
   profile persistence, sound filtering without stopping logs and Biscuit rules.
 - Browser desktop/mobile checks passed for tabs, ALPR filtering, general
   filters, profile controls, settings/sound persistence and camera preview.
@@ -48,7 +51,7 @@ Validation on September 23, 2026:
   Staging tests verified image ranges exclude NVS and reject stale/corrupt images.
   USB flashing through the browser chooser has not been exercised.
 - Connected XIAO flashed via PlatformIO; esptool verified the written hash.
-  A 30-second hardware check measured 24.9–25.0 camera analysis fps at
+  A 30-second hardware check measured 25.0–25.1 camera analysis fps at
   640×480, zero decode errors, ADC at 1000 Hz, SD ready, WiFi/BLE active,
   zero added queue drops, and valid GPS sentences with zero checksum errors.
   Startup radio drops were nonzero; no satellite fix was available indoors.
