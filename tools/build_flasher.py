@@ -36,7 +36,7 @@ def stage(destination):
     parts, checksums = [], []
     for name, offset, end in [('bootloader', 0, 0x8000), ('partitions', 0x8000, 0x9000),
                               ('boot_app0', 0xe000, 0x10000), ('firmware', 0x10000, len(data))]:
-        filename = name + '.bin'
+        filename = name + '-' + digest + '.bin'
         part = data[offset:end]
         (destination / filename).write_bytes(part)
         parts.append(dict(path=filename, offset=offset))
@@ -44,7 +44,9 @@ def stage(destination):
     manifest = dict(name='Flock Noir — XIAO ESP32-S3 Sense', version=version,
                     new_install_prompt_erase=True, new_install_improv_wait_time=0,
                     builds=[dict(chipFamily='ESP32-S3', parts=parts)])
-    (destination / 'manifest.json').write_text(json.dumps(manifest, indent=2)+'\n', encoding='utf-8')
+    manifest_text = json.dumps(manifest, indent=2)+'\n'
+    (destination / 'manifest.json').write_text(manifest_text, encoding='utf-8')
+    (destination / ('manifest-'+digest+'.json')).write_text(manifest_text, encoding='utf-8')
     (destination / 'firmware-info.json').write_text(json.dumps(info, indent=2)+'\n', encoding='utf-8')
     (destination / 'SHA256SUMS').write_text('\n'.join(checksums)+'\n', encoding='ascii')
     (destination / '.nojekyll').touch()

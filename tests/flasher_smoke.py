@@ -35,6 +35,7 @@ def main():
             assert page.evaluate("!!customElements.get('esp-web-install-button')")
             info = page.request.get(url+'firmware-info.json').json()
             assert info['version'] in page.locator('#release').inner_text()
+            assert page.locator('#installer').evaluate('(e)=>e.manifest') == 'manifest-'+info['sha256']+'.json'
             for width in (1100,390):
                 page.set_viewport_size({'width':width,'height':950})
                 assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+1')

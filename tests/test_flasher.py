@@ -34,6 +34,8 @@ class FlasherTests(unittest.TestCase):
             with patch.object(builder, 'ROOT', root):
                 builder.stage(root/'site')
                 manifest = json.loads((root/'site/manifest.json').read_text(encoding='utf-8'))
+                self.assertEqual(manifest,json.loads((root/'site'/('manifest-'+digest+'.json')).read_text(encoding='utf-8')))
+                self.assertTrue(all(digest in p['path'] for p in manifest['builds'][0]['parts']))
                 self.assertTrue(manifest['new_install_prompt_erase'])
                 self.assertEqual(manifest['new_install_improv_wait_time'],0)
                 self.assertEqual(manifest['builds'][0]['chipFamily'],'ESP32-S3')

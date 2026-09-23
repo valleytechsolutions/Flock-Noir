@@ -5,7 +5,7 @@ try {
   const response = await fetch('firmware-info.json', {cache: 'no-store'});
   if (!response.ok) throw new Error('Firmware metadata unavailable');
   const info = await response.json();
-  if (info.board !== 'xiao_esp32s3_sense' || !/^\d+\.\d+\.\d+$/.test(info.version)) throw new Error('Invalid release metadata');
+  if (info.board !== 'xiao_esp32s3_sense' || !/^\d+\.\d+\.\d+$/.test(info.version) || !/^[0-9a-f]{64}$/.test(info.sha256)) throw new Error('Invalid release metadata');
   release.textContent = `Flock Noir ${info.version} · ${(info.size / 1048576).toFixed(2)} MiB`;
   document.querySelector('#releaseLink').href = `https://github.com/valleytechsolutions/Flock-Noir/releases/tag/xiao-v${info.version}`;
   if (!window.isSecureContext) {
@@ -16,6 +16,7 @@ try {
     connection.textContent = 'Loading USB installer…';
     await import('https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module');
     await customElements.whenDefined('esp-web-install-button');
+    document.querySelector('#installer').manifest = `manifest-${info.sha256}.json`;
     button.disabled = false;
     connection.textContent = 'Ready. Your browser will ask you to choose a USB serial device.';
   }
