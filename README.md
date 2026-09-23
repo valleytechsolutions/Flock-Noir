@@ -92,7 +92,7 @@ Flock Noir now adds passive WiFi Flock/ALPR candidate detection, BLE vendor and
 watchlist scanning, target RSSI tones, WiFi packet capture, BLE advertisement
 capture, and drone Remote ID. OPT101 pulse timing runs alongside wardriving;
 events record their source and supporting evidence. The original UI design and
-visual style remains. See [features, limits and operation](docs/RADIO.md).
+visual style remain. See [features, limits and operation](docs/RADIO.md).
 
 **Version 0.4.4 introduced** configurable sounds per device type: a retro blaster for
 ALPR candidates, a siren for Axon, questioning tones for Ring/Meta, and distinct
@@ -294,14 +294,16 @@ checklist in [docs/RADIO.md](docs/RADIO.md#validation-before-relying-on-a-build)
    http://192.168.4.1. iPhones rely on the built-in captive portal; if Safari still balks,
    briefly disable cellular data.
 
-The interface has four tabs:
+The interface has five tabs:
 
-- Detector: live alert banner, signal, duty, GPS, fps, and SD tiles, recent detections,
-  and a CSV download.
+- ALPR: focus profile, four-source evidence ages, optical scopes, camera/GPS/SD health,
+  ALPR candidates, recent detections and a combined detection CSV.
+- Scanner: all device types, category filters, General alerts, radio modes, BLE scanning,
+  watchlists, target tracking, capture downloads and saved radio sessions.
+  Hold BOOT for 1.5 seconds to return from Field mode on XIAO.
 - Camera: live near-IR view, plus a record button for MJPEG AVI (optionally with a WAV
   from the microphone).
-- Wardrive: radio modes, BLE scanning, watchlists, target tracking, capture downloads,
-  saved radio sessions and the independent WiGLE toggle. Hold BOOT to return from Field mode.
+- Wardrive: the independent WiGLE logging toggle, scan counts, GPS state and WiGLE CSV.
 - Settings: enable or disable the buzzer and edit the RTTTL tone library, with presets and
   a Test button. Settings are saved on the device.
 
@@ -309,11 +311,12 @@ The interface has four tabs:
 
 ## Logs and data
 
-IR, radio and WiGLE data are kept in separate files on the SD card:
+Optical and radio detection events share one CSV. Raw radio captures, WiGLE logs
+and recordings have their own files on the SD card:
 
 | Log | Path | Format |
 |---|---|---|
-| IR detections | /logs/flock_*.csv | iso_utc, uptime_ms, source, lat, lon, alt_m, sats, hdop, freq_hz, duty, confidence, blob_x, blob_y, blob_frac, level_pp, evidence, logged_uptime_ms |
+| Detection events | /logs/flock_*.csv | 26 columns: timestamps, source, GPS, optical measurements, `detection_method`, category, assessment, MAC/RSSI, radio rule/tier and optical evidence flags. |
 | Wi-Fi wardrive | /wardrive/wigle_*.csv | WiGLE 1.4 (MAC, SSID, AuthMode, FirstSeen, Channel, RSSI, Lat, Lon, Alt, Accuracy, Type) |
 | Radio events and captures | /radio/events_*.jsonl, wifi_*.pcap, ble_*.jsonl | [Schemas, limits and downloads](docs/RADIO.md#data-and-resource-limits) |
 | Recordings | /videos/rec_*.avi (and .wav) | MJPEG AVI (and PCM WAV) |

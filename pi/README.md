@@ -197,12 +197,13 @@ wardriver interface, IR ADC channel. After editing: `sudo systemctl restart floc
 
 ## Using it
 
-Same four tabs as the XIAO build: **Detector** (alert banner, live signal scope, IR sensor
-panel, recent hits, CSV), **Camera** (live near-IR view, record), **Wardrive** (Wi-Fi to
-WiGLE CSV), **Settings** (buzzer tones). A smoother live view is also available at
+Same five tabs as the XIAO build: **ALPR** (focus profile, four-source evidence,
+optical scopes, recent hits and CSV), **Scanner** (all device types, General alerts,
+filters and radio controls), **Camera** (live near-IR view and recording),
+**Wardrive** (WiGLE logging) and **Settings** (device sounds and tone library). A smoother live view is also available at
 `http://192.168.4.1/stream.mjpg`.
 
-Data lives in `/var/lib/flocknoir/`: `logs/flock_*.csv` (IR hits, same columns as the
+Data lives in `/var/lib/flocknoir/`: `logs/flock_*.csv` (optical and radio detections, same columns as the
 XIAO), `wardrive/wigle_*.csv`, `videos/rec_*.mp4` (or `.h264` if ffmpeg is absent).
 
 ## Differences from the XIAO build
@@ -232,7 +233,7 @@ The Pi now uses the same native C++ pulse and radio parsers as XIAO, compiled by
 the installer. It adds strict pulse-width/duty/regularity checks, clipping and
 sampling-gap rejection, separate latched IR events, fresh GPS checks, WiFi/BLE
 watchlists, target RSSI tones, drone Remote ID and bounded capture files. The
-four-tab design stays the same. Full signature provenance and limitations are
+visual design stays the same with the ALPR and Scanner tabs. Full signature provenance and limitations are
 in [RADIO.md](../docs/RADIO.md); please support
 [Colonel Panic](https://colonelpanic.tech/) and
 [OUI Spy Unified Blue](https://github.com/colonelpanichacks/oui-spy-unified-blue).
