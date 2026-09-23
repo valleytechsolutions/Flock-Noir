@@ -25,6 +25,7 @@ KINDS = [
     ("pineapple", "Wi-Fi Pineapple", "pineapple"),
     ("drone", "Drone", "drone"),
     ("other", "Other watchlist devices", "chirp"),
+    ("biscuit", "Biscuit candidate", "flipper"),
 ]
 DEFAULTS = {key: default for key, _, default in KINDS}
 
@@ -38,7 +39,7 @@ def classify(row, protocol, ir=False, camera=False):
     if row["alpr"]:
         return "alpr_combined" if row["tier"] >= 2 and (ir or camera) else "alpr_"+protocol
     category = row["category"].lower()
-    for key in ("axon", "ring", "meta", "flipper", "pineapple"):
+    for key in ("axon", "ring", "meta", "flipper", "pineapple", "biscuit"):
         if key in category:
             return key
     return "drone" if any(k in category for k in ("drone", "dji", "parrot", "skydio")) else "other"

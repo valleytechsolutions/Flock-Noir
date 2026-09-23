@@ -1,0 +1,7 @@
+{
+  "version": "0.5.0",
+  "board": "xiao_esp32s3_sense",
+  "chipFamily": "ESP32-S3",
+  "size": 1638496,
+  "sha256": "c8615596acf1cb024180bfbd3e6d053bec679475e648a981737e232be566351e"
+}

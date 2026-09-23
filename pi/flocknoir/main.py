@@ -36,8 +36,9 @@ def main():
     radio = None
 
     def on_camera_detect(d, cx, cy):
+        if radio: radio.optical("camera", time.monotonic())
         nearby = radio.nearby_alpr(time.monotonic()) if radio else None
-        log.hit("camera", d.freqHz, d.dutyCycle, d.confidence, cx, cy, d.blobFrac, d.levelPP, nearby=nearby)
+        log.hit("camera", d.freqHz, d.dutyCycle, d.confidence, cx, cy, d.blobFrac, d.levelPP, nearby=nearby, fusion=radio.fusion() if radio else None)
         if not state["muted"]:
             buz.request_alert("alpr_combined" if nearby else "camera")
 
@@ -58,9 +59,10 @@ def main():
                 continue
             conf = min(1., r["validCount"]/8.)
             evidence = "ir_radio_nearby" if radio.recent_alpr(r["timestamp"]) else "ir_timing_match"
+            radio.optical("ir", r["timestamp"])
             nearby = radio.nearby_alpr(r["timestamp"])
             log.hit("ir", r["freqHz"], r["dutyCycle"], conf, level_pp=r["amp"],
-                    observed=r["timestamp"], evidence=evidence, nearby=nearby)
+                    observed=r["timestamp"], evidence=evidence, nearby=nearby, fusion=radio.fusion(r["timestamp"]))
             if not state["muted"]:
                 buz.request_alert("alpr_combined" if nearby else "alpr_ir")
     threading.Thread(target=ir_loop, daemon=True).start()

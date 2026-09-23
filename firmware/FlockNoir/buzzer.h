@@ -23,6 +23,7 @@ public:
   void setMuted(bool muted);
   void setAlertSound(int kind,const String &sound);
   void stop();
+  void clearAlerts() {_alerts.clear();stop();}
   bool isPlaying() const { return _playing; }
   uint32_t alertsPlayed() const { return _alertsPlayed; }
 

@@ -81,7 +81,7 @@ struct Advert {
   char name[64] = {};
   uint16_t company[8] = {}, services[32] = {};
   size_t companies = 0, serviceCount = 0;
-  bool flockService = false, nordicDfu = false, malformed = false;
+  bool biscuitService = false, flockService = false, nordicDfu = false, malformed = false;
   uint16_t appearance = 0;
   const uint8_t *remote = nullptr; size_t remoteLen = 0;
   bool hasCompany(uint16_t v) const { for (size_t i=0;i<companies;++i) if(company[i]==v)return true; return false; }
@@ -90,6 +90,7 @@ struct Advert {
 inline Advert advert(const uint8_t *p, size_t n) {
   Advert a;
   const uint8_t flockUuid[] = {0x6f,0x2e,0x17,0xdf,0x14,0x18,0xe5,0x9f,0xa8,0x46,0x32,0x95,0x38,0xbb,0xcc,0xe8};
+  const uint8_t biscuitUuid[]={0x4b,0x91,0x31,0xc3,0xc9,0xc5,0xcc,0x8f,0x9e,0x45,0xb5,0x1f,0x01,0xc2,0xaf,0x4f};
   const uint8_t dfuUuid[] = {0x23,0xd1,0xbc,0xea,0x5f,0x78,0x23,0x15,0xde,0xef,0x12,0x12,0x30,0x15,0,0};
   for (size_t pos=0;pos<n;) {
     size_t len=p[pos++]; if (!len) break;
@@ -107,6 +108,7 @@ inline Advert advert(const uint8_t *p, size_t n) {
       if((type!=0x21 && size%16) || (type==0x21 && size<16))a.malformed=true;
       size_t end=type==0x21?16:size;
       for(size_t i=0;i+16<=end && i+16<=size;i+=16) {
+        if(!memcmp(v+i,biscuitUuid,16))a.biscuitService=true;
         if(!memcmp(v+i,flockUuid,16))a.flockService=true;
         if(!memcmp(v+i,dfuUuid,16))a.nordicDfu=true;
       }
@@ -120,6 +122,7 @@ inline Match bleMatch(const Advert &a, const uint8_t *mac, bool publicAddress) {
   if(a.malformed) return {};
   if((a.hasCompany(0x0d53) && a.hasService(0xfd5f)) || contains(a.name,"ray-ban") ||
      contains(a.name,"wayfarer") || contains(a.name,"oakley meta")) return {"Meta glasses","meta_composite",3,false};
+  if(equal(a.name,"Biscuit"))return {"Biscuit candidate",a.biscuitService?"biscuit_name_service":"biscuit_name",uint8_t(a.biscuitService?3:2),false};
   if(a.flockService) return {"Flock accessory","service_uuid128",3,true};
   if(starts(a.name,"penguin-") && serialName(a.name+8))return {"Flock battery candidate","penguin_serial",2,true};
   if(contains(a.name,"penguin-") || contains(a.name,"fs ext battery") || contains(a.name,"flock"))

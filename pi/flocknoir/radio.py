@@ -14,7 +14,7 @@ import uuid
 
 import config as C
 from . import native, settings
-from .alerts import classify, detection_method
+from .alerts import classify
 from .radio_transport import (advertising_reports, command, hci_command,
                               open_hci, prepare_monitor, radiotap)
 
@@ -36,6 +36,7 @@ class Radio:
             self.channel = self.dashboard_channel = 1
         self.mode, self.capture = "dashboard", False
         self.hop = prefs.get("hop", "priority")
+        self.profile = settings.load_section("profile", "general")
         self.wifi_ready = self.ble_ready = self.ble_scanning = False
         self.wifi_error = self.ble_error = self.native_error = ""
         self.packets = self.dropped = self.log_errors = 0
@@ -59,6 +60,43 @@ class Radio:
         if start and not self.native_error:
             for target, name in ((self._wifi, "wifi-monitor"), (self._ble, "ble-scanner"), (self._worker, "radio-log")):
                 threading.Thread(target=target, daemon=True, name=name).start()
+
+    def set_profile(self, profile):
+        if profile not in ("alpr", "general"):
+            raise ValueError("Invalid detection profile")
+        with self.lock:
+            if profile == "alpr":
+                self.configure(self.mode, True, self.capture, self.watch, self.target, self.dashboard_channel, "priority")
+            settings.save_section("profile", profile)
+            self.profile = profile
+            self.buzzer.alert_queue.clear()
+            self.buzzer.stop()
+            for d in self.devices.values():
+                d["alert_tier"] = 0
+
+    def optical(self, source, when):
+        with self.lock:
+            attr = "ir_at" if source == "ir" else "camera_at"
+            old = getattr(self, attr)
+            if old is None or when >= old:
+                setattr(self, attr, when)
+
+    def fusion(self, when=None):
+        when = time.monotonic() if when is None else when
+        with self.lock:
+            if self.native_error:
+                return dict(windowMs=3000,method="unknown",assessment="unavailable",radioTier=0,mask=0,ageMs=[None]*4)
+            stamps = [self.ir_at, self.camera_at, None, None]
+            tiers = [0, 0, 0, 0]
+            for d in self.devices.values():
+                if not d.get("alpr") or not d.get("tier"):
+                    continue
+                i = 2 if d["protocol"] == "ble" else 3
+                at = d.get("matched", 0)
+                if stamps[i] is None or at > stamps[i]:
+                    stamps[i], tiers[i] = at, d["tier"]
+            ages = [min(0x7fffffff, int(abs(when-at)*1000)) if at is not None else -1 for at in stamps]
+            return native.fusion(ages, tiers)
 
     def configure(self, mode, ble, capture, watch, target, channel, hop="priority"):
         if hop not in ("priority", "all"):
@@ -87,7 +125,7 @@ class Radio:
 
     def status(self):
         with self.lock:
-            return dict(supported=True, hardware="pi", mode=self.mode, channel=self.channel, hop=self.hop,
+            return dict(supported=True, hardware="pi", profile=self.profile, mode=self.mode, channel=self.channel, hop=self.hop,
                         ble=self.ble, bleReady=self.ble_ready, bleScanning=self.ble_scanning,
                         wifiReady=self.wifi_ready, capture=self.capture, packets=self.packets,
                         dropped=self.dropped, logErrors=self.log_errors, freeHeap=0, minFreeHeap=0,
@@ -106,11 +144,12 @@ class Radio:
         with self.lock:
             self.devices.clear()
             self.last_alpr = 0.
+            self.ir_at = self.camera_at = None
             self.buzzer.alert_queue.clear()
 
-    def alert(self):
+    def alert(self, alpr_only=False):
         with self.lock:
-            recent = [d for d in self.devices.values() if d.get("priority", 0) and
+            recent = [d for d in self.devices.values() if d.get("priority", 0) and (not alpr_only or d.get("alpr")) and
                       time.monotonic()-d.get("matched", 0) <= 8]
             if not recent:
                 return None
@@ -314,7 +353,7 @@ class Radio:
                      alpr=row["alpr"], priority=row["priority"], matched=when)
         if row["priority"]:
             fresh = not old.get("alert_tier") or when-old.get("attention_seen", 0) >= 60
-            if (fresh or optical_upgrade or row["tier"] > old.get("alert_tier", 0)) and not self.state["muted"] and self.buzzer.enabled:
+            if (fresh or optical_upgrade or row["tier"] > old.get("alert_tier", 0)) and (self.profile != "alpr" or row["alpr"]) and not self.state["muted"] and self.buzzer.enabled:
                 self.buzzer.request_alert(classify(row, protocol, ir, camera))
             d.update(attention_seen=when, alert_tier=row["tier"] if fresh else max(row["tier"], old.get("alert_tier", 0)))
         drone = dict(old.get("drone", {}))
@@ -336,7 +375,7 @@ class Radio:
             self.devices.popitem(last=False)
         if row["alpr"] and row["tier"] >= 2:
             self.last_alpr = when
-        if row["mac"] == self.target and row["slot"] == 0 and not self.state["muted"] and self.buzzer.enabled:
+        if row["mac"] == self.target and row["slot"] == 0 and (self.profile != "alpr" or row["alpr"]) and not self.state["muted"] and self.buzzer.enabled:
             interval = max(0.15, min(2., (-observation["rssi"]-25)/35))
             if when-self.last_tone >= interval and not self.buzzer.is_playing():
                 self.buzzer.play("Track:d=32,o=6,b=200:c")
@@ -353,7 +392,7 @@ class Radio:
                       gps_valid=valid, lat=fix.get("lat") if valid else None, lon=fix.get("lon") if valid else None,
                       ir_timing_match=ir, camera_pattern=camera, alpr=row["alpr"],
                       assessment=native.assessment(row["alpr"],row["tier"],ir,camera),
-                      detection_method=detection_method(ir,camera,protocol),
+                      detection_method=self.fusion(when)["method"] if row["alpr"] else protocol,
                       evidence="ir_radio_nearby" if ir and row["alpr"] and row["tier"] >= 2 else "radio_candidate",
                       drone_id=d["droneId"], drone_lat=d["droneLat"], drone_lon=d["droneLon"],
                       operator_id=drone.get("operatorId", ""), altitude_m=drone.get("altitude"),

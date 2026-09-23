@@ -268,8 +268,10 @@ void logHit(const char *source, float freqHz, float duty, float conf,
   RecentAlert &ra = g_recent[g_recentHead];
   strncpy(ra.t, iso, sizeof(ra.t)); ra.t[sizeof(ra.t)-1]=0;
   strncpy(ra.src, source, sizeof(ra.src)); ra.src[sizeof(ra.src)-1]=0;
+  radio.optical(!strcmp(source,"ir"),observedMs);
+  auto fused=radio.fusion(observedMs);
   RadioEvidence nearby=radio.nearbyAlpr(observedMs);
-  bool ir=!strcmp(source,"ir"),camera=!strcmp(source,"camera");
+  bool ir=fused.has(AlprFusion::Ir),camera=fused.has(AlprFusion::Camera);
   const char *evidence = nearby.found ? "optical_radio_nearby" : ir ? "ir_timing_match" : "camera_pattern";
   strlcpy(ra.evidence,evidence,sizeof(ra.evidence));
   ra.lat = lat; ra.lon = lon; ra.hz = freqHz; ra.duty = duty; ra.conf = conf;
@@ -284,7 +286,7 @@ void logHit(const char *source, float freqHz, float duty, float conf,
       if (!f.printf("%s,%llu,%s,%.6f,%.6f,%.1f,%d,%.1f,%.2f,%.3f,%.3f,%u,%u,%.3f,%u,%s,%lu,%s,%s,%s,%s,%s,%s,%u,%u,%u\n",
                iso, (unsigned long long)observedMs, source, lat, lon, alt, sats, hdop,
                freqHz, duty, conf, bx, by, blobFrac, levelPP, evidence, (unsigned long)millis(),
-               detectionMethod(ir,camera,nearby.found && nearby.ble,nearby.found && !nearby.ble),
+               fused.method(),
                nearby.found?nearby.match.category:"Optical pulse candidate",
                nearby.found?"corroborated_camera_candidate":"possible_camera",nearby.mac,
                nearby.found?String(nearby.rssi).c_str():"",nearby.match.method,nearby.match.tier,ir,camera)) ++g_logErrors;
@@ -293,7 +295,7 @@ void logHit(const char *source, float freqHz, float duty, float conf,
   }
   if(!g_serialReplyActive) Serial.printf("[ALERT/%s] %s  %.6f,%.6f  %.1fHz duty=%.0f%% conf=%.2f\n",
                 source, iso, lat, lon, freqHz, duty*100, conf);
-  if(!g_muted)buzzer.requestAlert(nearby.found?AlertTones::Combined:ir?AlertTones::Ir:AlertTones::Camera);
+  if(!g_muted)buzzer.requestAlert(nearby.found?AlertTones::Combined:!strcmp(source,"ir")?AlertTones::Ir:AlertTones::Camera);
 }
 
 // Radio and optical detections share one downloadable CSV. Empty optical
@@ -308,7 +310,7 @@ void logRadioHit(uint32_t observed,const char *iso,bool fix,double lat,double lo
   // Columns 6..15: optical measurements and ancillary GPS fields unavailable here.
   for(int i=0;i<10;++i)row+=',';
   row+=String(",")+(match.alpr && (ir || camera)?"optical_radio_nearby":"radio_candidate")+","+String(millis())+","+
-    detectionMethod(ir,camera,!strcmp(protocol,"ble"),!strcmp(protocol,"wifi"))+","+match.category+","+
+    (match.alpr?radio.fusion(observed).method():detectionMethod(false,false,!strcmp(protocol,"ble"),!strcmp(protocol,"wifi")))+","+match.category+","+
     RadioProtocol::assessment(match,ir,camera)+","+mac+","+String(rssi)+","+match.method+","+
     String(match.tier)+","+(ir?"1":"0")+","+(camera?"1":"0")+"\n";
   if(f.print(row)!=row.length())++g_logErrors;
@@ -405,6 +407,9 @@ String statusJson() {
   j += ",\"irNoise\":" + String(ir.noise,1);
   j += ",\"radioNearby\":" + String(radio.recentAlpr(millis()) ? "true":"false");
   j += ",\"radioAlert\":" + radio.alertJson();
+  j += ",\"alprAlert\":" + radio.alertJson(true);
+  j += ",\"profile\":" + jsonQuote(radio.profile());
+  j += ",\"fusion\":" + radio.fusionJson(millis());
   j += ",\"radioEvents\":" + String(radio.events());
   j += ",\"logErrors\":" + String(g_logErrors);
   // system / QoL

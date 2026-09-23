@@ -69,6 +69,61 @@ class PiTests(unittest.TestCase):
         self.config.stop()
         self.temp.cleanup()
 
+    def test_fusion_both_arrival_orders_and_csv(self):
+        for optical_first in (True, False):
+            self.radio.clear_live()
+            when = time.monotonic()
+            if optical_first:
+                self.radio.optical("ir", when-.1)
+                self.radio.optical("camera", when-.05)
+            self.radio.process(dict(protocol="wifi",data=probe(),rssi=-40,channel=1,timestamp=when))
+            self.radio.process(dict(protocol="ble",data=ad_name("Flock"),address=bytes.fromhex("101112010203"),
+                                    public_address=False,rssi=-50,channel=0,timestamp=when))
+            if not optical_first:
+                self.radio.optical("ir", when+.1)
+                self.radio.optical("camera", when+.15)
+            f = self.radio.fusion(when+.2)
+            self.assertEqual(f["mask"],15)
+            self.assertEqual(f["method"],"ir+camera+ble+wifi")
+            self.assertEqual(f["assessment"],"multiple_sources_nearby")
+            self.log.hit("ir",10,.2,.8,observed=when,nearby=self.radio.nearby_alpr(when),fusion=f)
+            with open(self.log.path,newline="",encoding="utf-8") as file:
+                row=list(csv.DictReader(file))[-1]
+            self.assertEqual(row["detection_method"],"ir+camera+ble+wifi")
+            self.assertEqual(row["camera_pattern"],"1")
+            self.assertEqual(self.radio.fusion(when+4)["mask"],0)
+        self.assertEqual(native.fusion([0,0,0,-1],[0,0,1,0])["assessment"],"possible_camera")
+        self.assertEqual(native.fusion([-1,-1,3001,-1],[0,0,3,0])["mask"],0)
+
+    def test_profile_filters_sounds_not_logs_and_persists(self):
+        self.state["muted"] = False
+        self.assertEqual(self.client.post("/api/profile",data={"profile":"alpr"}).status_code,200)
+        self.assertEqual(settings.load_section("profile",None),"alpr")
+        self.assertFalse(self.ir.enabled)
+        self.assertTrue(self.radio.ble)
+        self.assertEqual(self.radio.hop,"priority")
+        observation=dict(protocol="ble",data=ad_name("Axon"),address=bytes.fromhex("101112010203"),
+                         public_address=False,rssi=-40,channel=0,timestamp=time.monotonic())
+        self.radio.process(observation)
+        self.assertFalse(self.buz.alert_queue.pending)
+        self.assertGreater(self.radio.events,0)
+        self.assertIsNone(self.radio.alert(alpr_only=True))
+        self.assertIn("Axon",self.radio.alert()["category"])
+        self.assertEqual(self.client.post("/api/profile",data={"profile":"general"}).status_code,200)
+        self.radio.process(dict(observation,timestamp=time.monotonic()))
+        self.assertIn("axon",self.buz.alert_queue.pending)
+        self.assertEqual(self.client.post("/api/profile",data={"profile":"invalid"}).status_code,400)
+        self.assertEqual(self.radio.profile,"general")
+
+    def test_biscuit_uses_name_not_shared_example_uuid_alone(self):
+        service=bytes([17,7])+bytes.fromhex("4b9131c3c9c5cc8f9e45b51f01c2af4f")
+        mac=bytes.fromhex("101112010203")
+        self.assertFalse(native.decode(service,mac)["rows"][0]["tier"])
+        m=native.decode(service+ad_name("Biscuit"),mac)["rows"][0]
+        self.assertEqual(m["method"],"biscuit_name_service")
+        self.assertFalse(m["alpr"])
+        self.assertEqual(native.decode(ad_name("Biscuit"),mac)["rows"][0]["tier"],2)
+
     def test_shared_pulse_acceptance_and_rejection(self):
         for period, width, expected in ((100, 20, True), (100, 60, False), (20, 10, False)):
             pulse = native.Pulse()
@@ -173,7 +228,7 @@ class PiTests(unittest.TestCase):
         self.assertEqual(row["evidence"], "ir_timing_match")
         data = self.client.get("/api/status").get_json()
         self.assertFalse(data["irEn"])
-        self.assertEqual(data["version"], "0.4.4")
+        self.assertEqual(data["version"], "0.5.0")
         self.assertNotIn("NaN", self.client.get("/api/status").text)
 
     def test_radio_api_and_real_capture_format(self):

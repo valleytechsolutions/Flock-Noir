@@ -13,6 +13,7 @@ def library():
         name = "native_core.dll" if os.name == "nt" else "native_core.so"
         lib = ct.CDLL(os.environ.get("FLOCKNOIR_NATIVE", str(Path(__file__).with_name(name))))
         for name, args, result in (
+            ("fn_fusion", [ct.POINTER(ct.c_int32), ct.POINTER(ct.c_uint8), ct.c_void_p, ct.c_size_t], ct.c_int),
             ("fn_decode_wifi", [ct.c_char_p, ct.c_size_t, ct.c_void_p, ct.c_size_t], ct.c_int),
             ("fn_decode_ble", [ct.c_char_p, ct.c_size_t, ct.c_char_p, ct.c_int, ct.c_void_p, ct.c_size_t], ct.c_int),
             ("fn_pulse_new", [], ct.c_void_p),
@@ -89,3 +90,11 @@ class Pulse:
     def __del__(self):
         if getattr(self, "handle", None):
             self.close()
+
+
+def fusion(ages, tiers):
+    out = ct.create_string_buffer(512)
+    size = library().fn_fusion((ct.c_int32*4)(*ages), (ct.c_uint8*4)(*tiers), out, len(out))
+    if size < 0:
+        raise ValueError("Invalid fusion output")
+    return json.loads(out.value)

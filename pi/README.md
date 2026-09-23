@@ -4,7 +4,7 @@
 
 # Flock Noir on Raspberry Pi
 
-*Flock Noir 0.4.4 for **Pi Zero 2 W + Camera Module NoIR v2**, sharing the XIAO
+*Flock Noir 0.5.0 for **Pi Zero 2 W + Camera Module NoIR v2**, sharing the XIAO
 web design, native OPT101 pulse validator and radio signature parsers. Pi camera,
 SPI and radio operation still require physical validation on your hardware.*
 
@@ -44,7 +44,7 @@ SPI and radio operation still require physical validation on your hardware.*
 
 1. Download `flocknoir-pi.img.xz` from the
    [Releases page](https://github.com/valleytechsolutions/Flock-Noir/releases).
-2. Choose the **Pi 0.4.4** release and verify its checksum.
+2. Choose the **Pi 0.5.0** release and verify its checksum.
    Open **Raspberry Pi Imager**, choose your Pi, then **Use custom** and pick the file.
    (You can skip Imager's customization; the image is already set up.)
 3. Flash, insert the card with the camera ribbon attached, and power up.
@@ -209,7 +209,7 @@ XIAO), `wardrive/wigle_*.csv`, `videos/rec_*.mp4` (or `.h264` if ffmpeg is absen
 
 | | XIAO ESP32-S3 Sense | Raspberry Pi |
 |---|---|---|
-| Camera | OV2640; VGA capture/analysis about 25 fps on 0.4.4; preview is slower | NoIR; configured for 60 fps, hardware rate must be measured |
+| Camera | OV2640; VGA capture/analysis about 25 fps on 0.5.0; preview is slower | NoIR; configured for 60 fps, hardware rate must be measured |
 | Recording | MJPEG AVI + WAV sidecar | Hardware H.264 mp4; audio muxed in if a USB mic + ffmpeg are present |
 | IR photodiode | Built-in ADC (D1) | Needs an MCP3008 on SPI |
 | Wi-Fi | AP + STA scan (single radio) | NetworkManager hotspot; scans pause while a phone is connected (single radio) |
@@ -226,7 +226,7 @@ XIAO), `wardrive/wigle_*.csv`, `videos/rec_*.mp4` (or `.h264` if ffmpeg is absen
   login shell is disabled (`raspi-config`).
 - **Service logs**: `journalctl -u flocknoir -f`.
 
-## Radio and OPT101 update (0.4.4)
+## Radio and OPT101 update (0.5.0)
 
 The Pi now uses the same native C++ pulse and radio parsers as XIAO, compiled by
 the installer. It adds strict pulse-width/duty/regularity checks, clipping and
@@ -239,7 +239,7 @@ in [RADIO.md](../docs/RADIO.md); please support
 
 Version 0.4.3 introduced radio-only detections on the Detector tab and the
 additional Flock-You serial/DFU hints, Flipper BLE and Pineapple SSID candidates,
-with encounter alerts. Version 0.4.4 assigns separate, configurable sounds. Repeated
+with encounter alerts. Version 0.5.0 assigns separate, configurable sounds. Repeated
 packets stay quiet, mute is respected, and logs retain the evidence tier.
 These radio rules do not require the IR toggle or a GPS fix to detect/log.
 
@@ -296,7 +296,23 @@ Bluetooth, monitor-adapter compatibility and optical range remain unverified
 on physical Pi hardware. Linux is not hard real time; inspect actual ADC sample
 rate/gaps and validate a known optical pulse source under recording/capture load.
 
-Version 0.4.4 adds per-device sound assignments in Settings, IR/BLE/WiFi method
+Version 0.5.0 adds per-device sound assignments in Settings, IR/BLE/WiFi method
 columns in the shared detection CSV, Ring audible candidates, and selectable
 1/6/11 or 1–11 field scans. These features share the dashboard with XIAO.
 See [sound and CSV details](../docs/RADIO.md#device-sounds-and-csv).
+
+
+### ALPR and Scanner tabs (0.5.0)
+
+The shared dashboard adds ALPR focus, a separate General Scanner tab and four
+source evidence ages. Focus enables BLE and priority field scanning, suppressing
+non-ALPR sounds while retaining all observations. General alerts restores device
+sounds. The native fusion assessment matches the XIAO, including expiring evidence
+and combined CSV methods. Biscuit candidates have an editable sound; the shared
+Arduino example UUID alone is not an identification. Pineapple Pager is supported
+only at the recognizable Pineapple-family AP-name level, not as a unique model.
+
+The browser flasher is **only for XIAO Sense**. Continue using Raspberry Pi Imager
+and the Pi release image for your Zero 2 W. The Pi needs its camera, MCP3008 ADC
+for OPT101 and monitor-capable USB WiFi adapter for all evidence paths. No physical
+Pi was attached for this release's tests.

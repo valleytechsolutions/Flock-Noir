@@ -73,3 +73,21 @@ Pi 0.4.3 compiles Flock Noir's own shared `pulse_detector.h` and
 
 Flock Noir's original code remains under [LICENSE](LICENSE). Dependencies retain
 their own licenses. Credits do not replace any upstream license requirements.
+
+
+## Browser installer and additional signature references (0.5.0)
+
+- [ESP Web Tools](https://github.com/esphome/esp-web-tools), ESPHome contributors,
+  Apache-2.0: externally loaded, pinned to 10.4.0. Its installer and license
+  notices remain in the upstream distribution; no firmware library was added.
+- [CodeHedge Biscuit Wiki: GATT reference](https://codehedge.github.io/Biscuit-Wiki/3rd-party-integration/gatt-reference.html):
+  public BLE name/service facts used by an independently written passive parser.
+- [Espressif BLE Server example](https://github.com/espressif/arduino-esp32/blob/master/libraries/BLE/examples/Server/Server.ino):
+  confirms the Biscuit-advertised UUID is shared with example firmware, so the
+  UUID alone is deliberately excluded as an identifying rule.
+- [Hak5 WiFi Pineapple Pager](https://documentation.hak5.org/wifi-pineapple-pager):
+  product reference. Existing Pineapple-family candidate rules do not confirm
+  the Pager model; no proprietary firmware or payloads are included.
+
+Continued thanks and support to [Colonel Panic](https://colonelpanic.tech/) and
+[OUI Spy Unified Blue](https://github.com/colonelpanichacks/oui-spy-unified-blue).

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Install Flock Noir on Seeed Studio XIAO ESP32-S3 Sense directly from your browser.">
+<title>Flock Noir · Web flasher</title><link rel="icon" href="logo.png">
+<link rel="stylesheet" href="style.css"></head><body><main>
+<header><img src="logo.png" width="84" height="84" alt=""><div><h1>FLOCK NOIR</h1><p>WEB FLASHER / XIAO SENSE</p></div></header>
+<section class="card"><span class="tag">SEEED STUDIO XIAO ESP32-S3 SENSE</span>
+<h2>Plug in. Install. Start scanning.</h2>
+<p>Install Flock Noir using a USB data cable and desktop Chrome or Edge. This firmware is built for the <strong>XIAO ESP32-S3 Sense</strong> with an OV2640. Use the Pi release for a Raspberry Pi; other ESP32-S3 boards and ESP32-CAM have different wiring.</p>
+<p id="release" aria-live="polite">Checking firmware…</p>
+<esp-web-install-button id="installer" manifest="manifest.json">
+  <button slot="activate" id="installButton" disabled>CONNECT &amp; INSTALL</button>
+  <span slot="unsupported">Use desktop Chrome or Edge with Web Serial support.</span>
+  <span slot="not-allowed">Open this page directly over HTTPS to access USB.</span>
+</esp-web-install-button>
+<p id="connection" role="status"></p>
+<p class="muted">When updating Flock Noir, leave <strong>Erase device</strong> unchecked to keep saved settings. Erasing resets internal settings; the microSD card is separate. Firmware updates restart the device.</p>
+<a href="https://github.com/valleytechsolutions/Flock-Noir/releases" id="releaseLink">Release downloads &amp; manual install</a> · <a href="SHA256SUMS">Part checksums</a>
+</section>
+<section class="card"><h2>1 / Connect your board</h2><ol>
+<li>Connect the XIAO with a USB data cable. Close serial monitors or other flashers using that port.</li>
+<li>Select <strong>Connect &amp; install</strong>, choose the XIAO USB serial device, then follow the installer.</li>
+<li>If it is not detected, hold <strong>BOOT</strong>, tap <strong>RESET</strong>, release BOOT and reconnect. After installation, tap RESET if it stays in the bootloader.</li>
+</ol></section>
+<section class="card"><h2>2 / Open Flock Noir</h2><p>Join WiFi <strong>Flock Noir</strong> with password <code>flocknoir</code>, then open <a href="http://192.168.4.1/">192.168.4.1</a>. Your computer may lose internet while connected to the board.</p>
+<p>The <strong>ALPR</strong> tab combines OPT101 timing, camera patterns and Flock WiFi/BLE evidence. <strong>Scanner</strong> shows other recognized device types. Choose ALPR focus or General alerts without stopping evidence collection.</p>
+<p class="muted">Field mode hops WiFi channels and turns off the XIAO hotspot. Hold BOOT for 1.5 seconds to restore the dashboard. Detection keeps running.</p></section>
+<section class="card"><h2>3 / Wire and enable the OPT101</h2>
+<table><thead><tr><th>OPT101 module</th><th>XIAO Sense</th></tr></thead><tbody>
+<tr><td>VCC / V+</td><td>3V3</td></tr><tr><td>GND</td><td>GND</td></tr><tr><td>OUT / signal</td><td>D1 = GPIO2</td></tr></tbody></table>
+<p>D1 is the second pin down on the left, looking at the component side with USB at the top. These connections are for a breakout module with those labels; check its markings before wiring. Use 3.3 V signal levels.</p>
+<p>Enable OPT101 in the ALPR tab after wiring and check its response to light. First-install default is off. GPS remains on D7/GPIO44 (GPS TX), D6/GPIO43 (optional GPS RX), at 9600 baud.</p>
+<p class="muted">Timing matches and nearby radio signatures indicate candidates. They do not prove a particular camera is present, and a quiet scan cannot rule one out.</p>
+<a href="https://github.com/valleytechsolutions/Flock-Noir/blob/main/docs/RADIO.md">Wiring, scan coverage &amp; detection evidence</a></section>
+<footer>Flock Noir by Your Pal Kal · <a href="https://github.com/valleytechsolutions/Flock-Noir">Source</a><br>
+With thanks to <a href="https://colonelpanic.tech/">Colonel Panic</a> and <a href="https://github.com/colonelpanichacks/oui-spy-unified-blue">OUI Spy Unified Blue</a>.<br>
+Installer powered by <a href="https://esphome.github.io/esp-web-tools/">ESP Web Tools</a> (Apache-2.0).</footer>
+</main><script type="module" src="app.js"></script></body></html>

@@ -30,7 +30,7 @@ class HitLogger:
             self.errors += 1
 
     def hit(self, source, freq_hz, duty, conf, bx=0, by=0, blob_frac=0., level_pp=0,
-            observed=None, evidence=None, nearby=None):
+            observed=None, evidence=None, nearby=None, fusion=None):
         now = time.monotonic()
         observed = now if observed is None else observed
         fix = self._gps.fix()
@@ -39,6 +39,8 @@ class HitLogger:
         lat, lon = (fix.get("lat"), fix.get("lon")) if valid else (None, None)
         evidence = evidence or ("camera_pattern" if source == "camera" else "ir_timing_match")
         ir, camera = source == "ir", source == "camera"
+        if fusion:
+            ir, camera = bool(fusion["mask"] & 1), bool(fusion["mask"] & 2)
         radio = nearby or {}
         if nearby:
             evidence = "optical_radio_nearby"
@@ -54,7 +56,7 @@ class HitLogger:
                                                fix.get("alt") if valid else None, fix.get("sats", 0),
                                                fix.get("hdop"), freq_hz, duty, conf, bx, by,
                                                blob_frac, level_pp, evidence, int(now*1000),
-                                               detection_method(ir,camera,radio.get("protocol")),
+                                               fusion["method"] if fusion else detection_method(ir,camera,radio.get("protocol")),
                                                radio.get("category","Optical pulse candidate"),
                                                "corroborated_camera_candidate" if nearby else "possible_camera",
                                                radio.get("mac"),radio.get("rssi"),radio.get("method"),

@@ -1,6 +1,7 @@
 // Shared XIAO/Pi pulse and packet parsers, exposed through a small C ABI.
 #include "pulse_detector.h"
 #include "radio_protocol.h"
+#include "fusion.h"
 #include <new>
 #include <string>
 
@@ -78,6 +79,17 @@ FN_EXPORT int fn_decode_ble(const uint8_t *p,size_t n,const uint8_t *address,int
   for(size_t i=0;i<a.companies;++i){if(i)s+=',';s+=std::to_string(a.company[i]);}
   s+="],\"services\":[";
   for(size_t i=0;i<a.serviceCount;++i){if(i)s+=',';s+=std::to_string(a.services[i]);}
+  return output(s+"]}",out,cap);
+}
+FN_EXPORT int fn_fusion(const int32_t *ages,const uint8_t *tiers,char *out,size_t cap) {
+  if(!ages || !tiers)return -1;
+  AlprFusion::Tracker tracker;
+  for(int i=0;i<AlprFusion::Count;++i)if(ages[i]>=0 && ages[i]<=int32_t(AlprFusion::WINDOW_MS))
+    tracker.observe(AlprFusion::Source(i),3001-ages[i],tiers[i]);
+  auto f=tracker.snapshot(3001);
+  std::string s="{\"windowMs\":3000,\"method\":"+quote(f.method())+",\"assessment\":"+quote(f.assessment())+
+    ",\"radioTier\":"+std::to_string(f.radioTier)+",\"mask\":"+std::to_string(f.mask)+",\"ageMs\":[";
+  for(int i=0;i<AlprFusion::Count;++i){if(i)s+=',';s+=f.age[i]<0?"null":std::to_string(f.age[i]);}
   return output(s+"]}",out,cap);
 }
 FN_EXPORT void *fn_pulse_new() {return new(std::nothrow) PulseDetector;}

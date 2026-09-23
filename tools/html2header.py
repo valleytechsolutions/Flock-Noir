@@ -17,7 +17,7 @@ DST = os.path.join(ROOT, "firmware", "FlockNoir", "web_ui.h")
 HEADER = """\
 // =============================================================================
 //  Flock Noir  -  web_ui.h   (GENERATED from web/index.html - do not hand edit)
-//  Single-page UI. Tabs: Detector / Camera / Wardrive / Settings.
+//  Single-page UI. Tabs: ALPR / Scanner / Camera / Wardrive / Settings.
 //  Polls /api/status ~2x/sec. Logo served UNALTERED at /logo.png.
 //  Regenerate with:  python tools/html2header.py
 // =============================================================================

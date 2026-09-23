@@ -7,6 +7,10 @@ void radioDownload(const String &path,const char *type) {
   server.streamFile(f,type);
 }
 void registerRadioRoutes() {
+  server.on("/api/profile",HTTP_POST,[](){
+    bool ok=radio.setProfile(server.arg("profile"));
+    server.send(ok?200:400,"application/json",ok?"{\"ok\":true}":"{\"ok\":false}");
+  });
   server.on("/api/radio",HTTP_GET,[](){server.send(200,"application/json",radio.json());});
   server.on("/api/radio/devices",HTTP_GET,[](){server.send(200,"application/json",radio.rowsJson());});
   server.on("/api/radio",HTTP_POST,[](){
@@ -65,7 +69,8 @@ void serviceRadioSerial() {
     char c=Serial.read();
     if(c=='\r')continue;
     if(c=='\n') {
-      if(command=="CMD:STATUS")output=radio.json()+"\n";
+      if(command.startsWith("CMD:PROFILE:"))output=radio.setProfile(command.substring(12))?"{\"ok\":true}\n":"{\"ok\":false}\n";
+      else if(command=="CMD:STATUS")output=radio.json()+"\n";
       else if(command=="CMD:HEALTH")output=statusJson()+"\n";
       else if(command=="CMD:VERSION")output="{\"firmware\":\"Flock Noir\",\"version\":\"" FLOCK_NOIR_VERSION "\"}\n";
       else if(command=="CMD:DUMP_LIVE")output=radio.rowsJson()+"\n";

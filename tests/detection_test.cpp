@@ -1,3 +1,4 @@
+#include "fusion.h"
 #include "pulse_detector.h"
 #include "radio_protocol.h"
 #include "radio_alert.h"
@@ -160,6 +161,32 @@ int main() {
   for(int i=0;i<5000;++i) {
     std::vector<uint8_t> bytes(rng()%800);for(auto &v:bytes)v=rng();
     advert(bytes.data(),bytes.size());wifi(bytes.data(),bytes.size());Drone x;drone(bytes.data(),bytes.size(),x);
+  }
+  {
+    AlprFusion::Tracker t;
+    assert(!t.snapshot(5000).mask);
+    t.observe(AlprFusion::Ir,1000);t.observe(AlprFusion::Camera,1100);
+    t.observe(AlprFusion::Ble,1200,1);
+    assert(!strcmp(t.snapshot(1300).assessment(),"possible_camera"));
+    t.observe(AlprFusion::Wifi,1250,3);
+    auto f=t.snapshot(1300);
+    assert(f.mask==15 && !strcmp(f.method(),"ir+camera+ble+wifi"));
+    assert(!strcmp(f.assessment(),"multiple_sources_nearby"));
+    assert(!t.snapshot(4251).mask);
+    t.clear();t.observe(AlprFusion::Wifi,0xfffffff0,3);t.observe(AlprFusion::Ir,0x10);
+    assert(t.snapshot(0x20).mask==9);
+    t.observe(AlprFusion::Ir,0xfffffff1); // older queue item cannot replace fresh
+    assert(t.snapshot(0x20).age[0]==16);
+    t.clear();t.observe(AlprFusion::Camera,0);assert(t.snapshot(0).has(AlprFusion::Camera));
+    assert(!strcmp(detectionMethod(false,false,true,true),"ble+wifi"));
+  }
+  {
+    const uint8_t service[]={17,7,0x4b,0x91,0x31,0xc3,0xc9,0xc5,0xcc,0x8f,0x9e,0x45,0xb5,0x1f,0x01,0xc2,0xaf,0x4f};
+    auto a=advert(service,sizeof(service));assert(a.biscuitService);
+    assert(!bleMatch(a,unknown,false).tier); // common Arduino example UUID
+    strcpy(a.name,"Biscuit");auto m=bleMatch(a,unknown,false);
+    assert(m.tier==3 && !m.alpr && AlertTones::classify(m,true,false,false)==AlertTones::Biscuit);
+    a.biscuitService=false;assert(bleMatch(a,unknown,false).tier==2);
   }
   puts("camera, pulse, radio signatures, Remote ID and malformed-packet tests passed");
 }

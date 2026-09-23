@@ -27,6 +27,14 @@ def create_app(ctx):
     def radio_capabilities():
         return jsonify(ctx.radio.status())
 
+    @app.post("/api/profile")
+    def detection_profile():
+        try:
+            ctx.radio.set_profile(request.form.get("profile", ""))
+            return jsonify(ok=True)
+        except (ValueError, OSError) as exc:
+            return jsonify(ok=False, error=str(exc)), 400
+
     @app.post("/api/radio")
     def radio_settings():
         try:
@@ -105,6 +113,7 @@ def create_app(ctx):
             "sd": log.ready, "logged": log.count, "logErrors": log.errors,
             "version": __version__, "cameraReady": cam.ok,
             "radioAlert": ctx.radio.alert(), "radioEvents": ctx.radio.events,
+            "alprAlert": ctx.radio.alert(alpr_only=True), "fusion": ctx.radio.fusion(), "profile": ctx.radio.profile,
             "fix": bool(fix.get("valid")), "buzzer": buz.enabled,
             "wd": wd.enabled, "wdScan": wd.scanning, "wdLogged": wd.logged,
             "wdTotal": wd.last_total, "wdNew": wd.new_last,

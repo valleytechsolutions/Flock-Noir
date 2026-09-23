@@ -10,7 +10,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", required=True)
     parser.add_argument("--seconds", type=int, default=30)
-    parser.add_argument("--version", default="0.4.4")
+    parser.add_argument("--version", default="0.5.0")
     parser.add_argument("--require-gps-data", action="store_true")
     parser.add_argument("--require-sd", action="store_true")
     args = parser.parse_args()

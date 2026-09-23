@@ -43,15 +43,58 @@ By Your Pal Kal
 
 ---
 
+## Install from your browser
+
+**[Open the XIAO ESP32-S3 Sense web flasher](https://valleytechsolutions.github.io/Flock-Noir/)**
+
+Use desktop Chrome or Edge, a USB data cable, and your **Seeed Studio XIAO
+ESP32-S3 Sense**. Select Connect & Install and choose its USB serial port.
+Close serial monitors first. If needed, hold BOOT, tap RESET, then release BOOT.
+After flashing, reset the board, join **Flock Noir** / **flocknoir**, and open
+**http://192.168.4.1**. Leave **Erase device** unchecked on an update to preserve
+settings. The installer uses split images that exclude NVS. It cannot distinguish
+board models sharing the S3 chip: this image is only for the XIAO Sense.
+The Pi Zero 2 W uses its [own image](pi/README.md); ESP32-CAM is not supported.
+
+## ALPR focus and General scan (0.5.0)
+
+The **ALPR tab** combines OPT101 pulse timing, OV2640 camera patterns, Flock-You
+OUI/probe rules and BLE signatures. Four evidence indicators show matches within
+3 seconds, with source ages and hardware readiness. Both optical-first and
+radio-first encounters are correlated. CSV `detection_method` can include all
+four sources: `ir+camera+ble+wifi`. Nearby sources are not assumed to be one device;
+MACs remain separate in the radio log. Missing evidence cannot rule out a camera.
+
+**Focus ALPR** enables BLE, selects priority 1/6/11 for field scans and limits
+automatic sounds to ALPR/optical candidates. It preserves the OPT101 enable setting
+and current hotspot/field mode. **Scanner** is a separate tab with category filters
+and a **Use general alerts** button for ALPR, Axon, Ring, Meta, Flipper, Pineapple,
+Biscuit and drone candidates. All scanners and logs keep running in either profile;
+switching tabs alone does not change the profile. General alerts remain the default
+for compatibility with existing installations. The colors, typography and camera
+preview remain, with five tabs instead of four.
+
+Biscuit's documented BLE name and service are supported, with an editable sound.
+The service UUID alone is shared with an Arduino example and is not a Biscuit match.
+Pineapple Pager is covered only by recognizable Pineapple-family AP names; no
+unique Pager-model signature is claimed. Renamed, silent or out-of-band devices
+can be missed. See [evidence and coverage](docs/RADIO.md#alpr-focus-and-evidence-fusion-050).
+
+OPT101 **OUT → D1/GPIO2**, **VCC → 3V3**, **GND → GND**. D1 is the second left
+pin with USB at the top and the component side facing you. Enable the sensor in
+ALPR after wiring and check its response to light. ATGM336H wiring and 9600 baud
+are unchanged. The 8–12 Hz optical profile is a testable starting point, not a
+universal ALPR identifier. OPT101 measures intensity/timing, not optical wavelength.
+
 ## Radio + OPT101 integration (0.4)
 
 Flock Noir now adds passive WiFi Flock/ALPR candidate detection, BLE vendor and
 watchlist scanning, target RSSI tones, WiFi packet capture, BLE advertisement
 capture, and drone Remote ID. OPT101 pulse timing runs alongside wardriving;
 events record their source and supporting evidence. The original UI design and
-four tabs remain. See [features, limits and operation](docs/RADIO.md).
+visual style remains. See [features, limits and operation](docs/RADIO.md).
 
-**Version 0.4.4** adds configurable sounds per device type: a retro blaster for
+**Version 0.4.4 introduced** configurable sounds per device type: a retro blaster for
 ALPR candidates, a siren for Axon, questioning tones for Ring/Meta, and distinct
 Flipper, Pineapple and drone sounds. Settings can assign a built-in sound,
 your own RTTTL slot, or silence to each category. The header byline is removed;
@@ -62,7 +105,7 @@ including `detection_method`, signature rule, tier, assessment and GPS validity.
 The 34-prefix Flock-You OUI union and probe/BLE rules remain enabled by default.
 Field mode offers priority channels 1/6/11 (350 ms dwell, as in Unified Blue)
 or a full 1–11 sweep. Camera and OPT101 sampling continue in either scan mode.
-The VGA JPEG preview and original four-tab dashboard are preserved.
+The VGA JPEG preview and dashboard style are preserved.
 Download the board-specific
 binary and checksum from [Releases](https://github.com/valleytechsolutions/Flock-Noir/releases).
 
@@ -144,7 +187,7 @@ sensor is wired. It builds on research from [Noflock/Flock-IR-Detection](https:/
 ## Hardware targets
 
 Flock Noir has XIAO and Raspberry Pi targets that share the web UI
-(`web/index.html`) and native pulse/radio parsers. Both have 0.4.4 detection,
+(`web/index.html`) and native pulse/radio parsers. Both have 0.5.0 detection,
 watchlists, evidence logs and capture downloads. The **Pi Zero 2 W** uses an
 MCP3008 for OPT101 input and a dedicated monitor-capable USB WiFi adapter for
 passive packet capture; onboard WiFi supports surveys and the hotspot, and

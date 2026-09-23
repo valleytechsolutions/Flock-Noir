@@ -1,17 +1,23 @@
-# Flock Noir 0.4.4 - Raspberry Pi Zero 2 W
+# Flock Noir 0.5.0 - Raspberry Pi Zero 2 W
 
 Installable Raspberry Pi OS Lite arm64 image with Flock Noir, the shared XIAO/Pi
 pulse and radio parsers, unchanged dashboard design, BLE scanning, WiFi candidate
 detection, watchlists, Remote ID, evidence logs and capture downloads.
 
-This release adds configurable device-specific sounds, a combined optical/radio
-CSV with explicit detection methods, audible Ring candidates, and selectable
-1/6/11 or 1–11 field scans. The header byline is removed and the footer credits
-Your Pal Kal. Existing custom RTTTL tones are preserved. ALPR candidates use a
-retro blaster, Axon a siren, and Ring/Meta questioning tones by default; every
-category can be changed or silenced in Settings. The 34-prefix Flock-You rules
-remain active. Optical timing and radio signatures are evidence, not proof of
-camera identity.
+This release adds the ALPR focus profile, a dedicated General Scanner tab,
+four-source evidence ages and combined CSV methods such as `ir+camera+ble+wifi`.
+The native C++ assessment is shared with XIAO. ALPR focus enables BLE and priority
+field scanning, limiting automatic sounds to camera candidates while retaining
+all device observations. General alerts restores per-device sounds; existing
+custom RTTTL settings survive. The UI keeps its dark/green design.
+
+Biscuit name/service candidates are supported with an editable sound. Its UUID
+alone is shared with an Arduino example and is not a Biscuit identification.
+Pineapple Pager remains a recognizable Pineapple-family AP-name candidate,
+not a unique Pager-model identification. Existing Flock-You OUI/probe/BLE,
+Axon, Ring, Meta, Flipper, Pineapple and drone rules remain.
+
+The browser web flasher is for XIAO only; use the Pi image below for Zero 2 W.
 
 Flash `flocknoir-pi.img.xz` with Raspberry Pi Imager's **Use custom** option.
 Verify the adjacent SHA-256 checksum. Join **Flock Noir**, password **flocknoir**,

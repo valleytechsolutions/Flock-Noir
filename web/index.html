@@ -36,7 +36,7 @@ header{display:flex;align-items:center;gap:16px;padding:16px 16px 12px;max-width
 @keyframes blink{50%{opacity:0}}
 
 /* ---- tabs ---- */
-.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);max-width:900px;margin:6px auto 0;padding:0 16px}
+.tabs{display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--line);max-width:900px;margin:6px auto 0;padding:0 16px}
 .tab{appearance:none;background:none;border:0;color:var(--mut);font:600 12px var(--mono);letter-spacing:1.5px;
  padding:12px 16px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
 .tab:hover{color:var(--ink)}
@@ -158,7 +158,8 @@ footer .spacer{flex:1}
 </header>
 
 <div class="tabs">
-  <button class="tab on" data-tab="detector">DETECTOR</button>
+  <button class="tab on" data-tab="detector">ALPR</button>
+  <button class="tab" data-tab="scanner">SCANNER</button>
   <button class="tab" data-tab="camera">CAMERA</button>
   <button class="tab" data-tab="wardrive">WARDRIVE</button>
   <button class="tab" data-tab="settings">SETTINGS</button>
@@ -168,7 +169,7 @@ footer .spacer{flex:1}
   <!-- ============ DETECTOR ============ -->
   <section id="detector">
     <div id="banner" class="banner clear">
-      <span id="bannerTxt">SCANNING FOR ALPR / DEVICE SIGNATURES + IR...</span></div>
+      <span id="bannerTxt">SCANNING FOR ALPR EVIDENCE...</span></div>
 
     <div style="display:flex;align-items:center;gap:16px;margin-top:10px;font-size:11px;color:var(--mut);flex-wrap:wrap">
       <label class="radio" style="color:var(--ink)"><input type="checkbox" id="mute"> mute alerts</label>
@@ -187,15 +188,28 @@ footer .spacer{flex:1}
       <div class="tile"><div class="k">Detections</div><div class="v" id="count">0</div></div>
     </div>
 
+    <div class="card" id="fusionCard">
+      <div class="row-head"><strong>ALPR focus</strong><span style="flex:1"></span><button class="btn primary" id="alprProfile">FOCUS ALPR</button></div>
+      <div class="hint" id="profileState"></div>
+      <div class="grid">
+        <div class="tile"><div class="k">OPT101 timing</div><div id="fusionIr">Waiting</div><div class="hint" id="readyIr"></div></div>
+        <div class="tile"><div class="k">Camera pattern</div><div id="fusionCamera">Waiting</div><div class="hint" id="readyCamera"></div></div>
+        <div class="tile"><div class="k">Flock BLE</div><div id="fusionBle">Waiting</div><div class="hint" id="readyBle"></div></div>
+        <div class="tile"><div class="k">Flock WiFi / OUI</div><div id="fusionWifi">Waiting</div><div class="hint" id="readyWifi"></div></div>
+      </div>
+      <div class="hint" id="fusionSummary">Waiting for evidence...</div>
+      <div class="hint">Evidence is combined within 3 seconds. Multiple sources increase support for a camera candidate; nearby radio and light may come from different devices. No recent evidence does not rule out a camera.</div>
+      <div class="hint">Focus enables BLE and selects priority channels 1/6/11 for field mode, with ALPR-only automatic sounds. All device observations still log. Enable OPT101 below after wiring; camera acquisition continues automatically. The radio shares time between WiFi and BLE.</div>
+    </div>
+
     <div class="card" id="detectorRadioCard" hidden>
-      <div class="row-head"><strong>ALPR / device detections</strong><span style="flex:1"></span>
+      <div class="row-head"><strong>ALPR radio candidates</strong><span style="flex:1"></span>
         <a class="btn sm" href="/api/log" download>CSV</a>
         <a class="btn sm" href="/api/radio/log" download>EVENT LOG</a></div>
       <div class="hint" id="detectorRadioHealth"></div>
       <div style="overflow-x:auto"><table><thead><tr><th>Device / name</th><th>Evidence</th><th>RSSI</th><th>Age</th></tr></thead>
         <tbody id="detectorRadioRows"></tbody></table></div>
-      <div class="hint">Flock-You WiFi/BLE rules, Axon, Meta, Flipper Zero and Pineapple candidates are enabled automatically.
-        Device types have separate sounds, configurable in Settings. Tier 1 is a weak hint; signatures can be shared or spoofed.</div>
+      <div class="hint">Flock-You OUI, probe and BLE rules run alongside optical detection. Other device types are in Scanner. Tier 1 is a weak hint; signatures can be shared or spoofed.</div>
     </div>
 
     <div class="card">
@@ -264,8 +278,16 @@ footer .spacer{flex:1}
     </div>
   </section>
 
-  <!-- ============ WARDRIVE ============ -->
-  <section id="wardrive" hidden>
+  <section id="scanner" hidden>
+    <div class="banner clear" id="generalBanner"><span id="generalBannerTxt">SCANNING FOR DEVICE SIGNATURES...</span></div>
+    <div class="card">
+      <div class="row-head"><strong>General scan</strong><span style="flex:1"></span><button class="btn primary" id="generalProfile">USE GENERAL ALERTS</button></div>
+      <div class="hint" id="generalProfileState"></div>
+      <div class="hint">ALPR / Flock, Axon, Ring, Meta glasses, Flipper Zero, WiFi Pineapple, Biscuit and drone signatures. Each has an editable sound in Settings.</div>
+      <div class="hint">Pineapple Pager is covered only when it advertises a recognizable Pineapple-family network name. This cannot identify the Pager model, silent devices or renamed networks. Biscuit uses its advertised name; matching name + service is stronger evidence.</div>
+      <div class="field"><label for="deviceFilter">Show devices</label><select id="deviceFilter"><option value="all">All matches</option><option value="alpr">ALPR / Flock</option><option value="axon">Axon</option><option value="ring">Ring</option><option value="meta">Meta</option><option value="flipper">Flipper</option><option value="pineapple">Pineapple family / Pager candidates</option><option value="biscuit">Biscuit</option><option value="drone">Drones</option></select></div>
+      <a class="btn sm" href="/api/log" download>DETECTION CSV</a>
+    </div>
     <div class="card" id="radioCard" hidden>
       <div class="row-head"><strong>Radio intelligence</strong><span style="flex:1"></span><span id="radioHealth" class="dim"></span></div>
       <div class="hint" id="radioModeHint">Passive WiFi and BLE signatures, drone Remote ID, and IR evidence in one session.
@@ -298,6 +320,11 @@ footer .spacer{flex:1}
       <div class="hint">Inspired by <a href="https://colonelpanic.tech/" target="_blank" rel="noopener">Colonel Panic</a> and
         <a href="https://github.com/colonelpanichacks/oui-spy-unified-blue" target="_blank" rel="noopener">OUI Spy Unified Blue</a>.</div>
     </div>
+  </section>
+
+  <!-- ============ WARDRIVE ============ -->
+  <section id="wardrive" hidden>
+    <div class="hint">Camera, OPT101 and radio detection keep running while wardriving. Set channel hopping in the <a href="#" id="wardriveScanner">Scanner tab</a>.</div>
     <div class="card">
       <div class="row-head"><strong>WiFi wardriver (WiGLE)</strong>
         <span style="flex:1"></span>
@@ -352,7 +379,7 @@ footer .spacer{flex:1}
 <footer>
   <span class="sig">- Your Pal <b>Kal</b></span>
   <span class="spacer"></span>
-  <span>Flock Noir v0.4.4</span>
+  <span>Flock Noir v0.5.0</span>
 </footer>
 
 <div class="toast" id="toast"></div>
@@ -380,7 +407,7 @@ function drawWaveOn(id,arr,color){
 }
 
 /* ---- tabs ---- */
-const SECTIONS=['detector','camera','wardrive','settings'];
+const SECTIONS=['detector','scanner','camera','wardrive','settings'];
 $$('.tab').forEach(b=>b.onclick=()=>{
   $$('.tab').forEach(x=>x.classList.toggle('on',x===b));
   SECTIONS.forEach(s=>$('#'+s).hidden = b.dataset.tab!==s);
@@ -446,9 +473,24 @@ async function tick(){
       $('#bannerTxt').textContent=(s.radioNearby?'IR + RADIO NEARBY':'IR TIMING MATCH')+'  -  '+fmt(s.irFreq,1)+' Hz, '+fmt(s.irDuty*100,0)+'% duty';}
     else if(s.detected){b.className='banner alert';
       $('#bannerTxt').textContent='CAMERA PULSE PATTERN  -  '+fmt(s.freq,1)+' Hz, '+fmt(s.duty*100,0)+'% duty, conf '+fmt(s.confidence,2);}
-    else if(s.radioAlert){b.className='banner alert';
-      $('#bannerTxt').textContent=(s.radioAlert.alpr?(s.radioAlert.assessment||'possible_camera').replaceAll('_',' ').toUpperCase()+' / ':'')+s.radioAlert.category.toUpperCase()+' - '+s.radioAlert.method+' (tier '+s.radioAlert.tier+')';}
-    else{b.className='banner clear';$('#bannerTxt').textContent='SCANNING FOR ALPR / DEVICE SIGNATURES + IR...';}
+    else if(s.alprAlert){b.className='banner alert';
+      $('#bannerTxt').textContent=(s.alprAlert.assessment||'possible_camera').replaceAll('_',' ').toUpperCase()+' / '+s.alprAlert.category.toUpperCase()+' - '+s.alprAlert.method+' (tier '+s.alprAlert.tier+')';}
+    else{b.className='banner clear';$('#bannerTxt').textContent='SCANNING FOR ALPR EVIDENCE...';}
+    const f=s.fusion||{}, ages=f.ageMs||[];
+    ['Ir','Camera','Ble','Wifi'].forEach((id,i)=>{
+      $('#fusion'+id).textContent=ages[i]==null?'No recent match':fmt(ages[i]/1000,1)+'s ago';
+      $('#fusion'+id).className=ages[i]==null?'dim':'ok';
+    });
+    $('#fusionSummary').textContent=(f.assessment||'no_recent_evidence').replaceAll('_',' ').toUpperCase()+
+      (f.mask?' | '+f.method+' | 3s window':'');
+    $('#readyIr').textContent=!s.irEn?'Off — enable after wiring':s.irClipped?'Clipping — reduce light':fmt(s.irSampleHz,0)+' samples/s — verify light response';
+    $('#readyCamera').textContent=s.cameraReady?fmt(s.fps,1)+' analysis fps':'Camera unavailable';
+    const focused=s.profile==='alpr';
+    $('#profileState').textContent=focused?'ALPR focus active — automatic sounds for camera candidates':'General alerts active — all device types can sound';
+    $('#generalProfileState').textContent=focused?'ALPR focus is active. Other devices still appear and log; select General alerts to hear their sounds.':'General alerts active. Optical and ALPR detection continue.';
+    const ga=s.radioAlert;
+    $('#generalBanner').className='banner '+(ga?'alert':'clear');
+    $('#generalBannerTxt').textContent=ga?ga.category.toUpperCase()+' — '+ga.method+' (tier '+ga.tier+')':'SCANNING FOR DEVICE SIGNATURES...';
     $('#freq').innerHTML=fmt(s.freq,1)+'<small> Hz</small>';
     $('#duty').innerHTML=fmt(s.duty*100,0)+'<small> %</small>';
     $('#conf').style.width=Math.round((s.confidence||0)*100)+'%';
@@ -521,6 +563,8 @@ async function pollRadio(){
       $('#radioBle').checked=r.ble;$('#radioCapture').checked=r.capture;
       $('#radioWatch').value=r.watch;$('#radioTarget').value=r.target;radioLoaded=true;
     }
+    $('#readyBle').textContent=r.ble && r.bleReady && r.bleScanning?'Scanning':r.ble?'Starting / unavailable':'Off';
+    $('#readyWifi').textContent=r.wifiReady?(r.mode==='field'?'Hopping '+(r.hop==='all'?'1–11':'1/6/11'):'Channel '+r.channel+' — field mode broadens coverage'):'Unavailable';
     $('#radioHealth').textContent=r.mode+' | channel '+r.channel;
     $('#radioCounts').textContent='Packets '+r.packets+' | queue drops '+r.dropped+' | SD errors '+r.logErrors+
       (r.wifiReady?'':' | WiFi unavailable')+(r.ble && !r.bleReady?' | BLE unavailable':'')+
@@ -528,19 +572,31 @@ async function pollRadio(){
     $('#detectorRadioHealth').textContent='Flock-You scanning | '+r.mode+' | channel '+r.channel+
       ' | radio events '+(r.events||0)+(r.wifiReady?'':' | WiFi unavailable')+
       (r.ble && r.bleReady?' | BLE scanning':' | BLE off / unavailable');
-    if(!$('#wardrive').hidden || !$('#detector').hidden){
+    if(!$('#scanner').hidden || !$('#detector').hidden){
       const devices=await (await fetch('/api/radio/devices',{cache:'no-store'})).json();
       const sorted=devices.sort((a,b)=>(b.alpr&&b.tier>=2?1:0)-(a.alpr&&a.tier>=2?1:0)||b.tier-a.tier||a.ageMs-b.ageMs);
       const render=d=>
         '<tr><td>'+escapeHtml(d.mac)+'<br><span class="dim">'+escapeHtml(d.protocol+' '+(d.name||d.droneId||''))+
         '</span></td><td>'+escapeHtml(d.category||'Advertisement')+'<br><span class="dim">'+escapeHtml(d.method)+
         ' (tier '+escapeHtml(d.tier)+')</span></td><td>'+escapeHtml(d.rssi)+' dBm</td><td>'+fmt(d.ageMs/1000,1)+'s</td></tr>';
-      $('#radioRows').innerHTML=sorted.slice(0,64).map(render).join('');
-      $('#detectorRadioRows').innerHTML=sorted.filter(d=>d.tier>0).slice(0,8).map(render).join('')||
+      const filter=$('#deviceFilter').value;
+      $('#radioRows').innerHTML=sorted.filter(d=>d.tier>0 && (filter==='all' || (filter==='alpr'?d.alpr:(d.category||'').toLowerCase().includes(filter)))).slice(0,64).map(render).join('')||'<tr><td colspan="4" class="dim">No matching devices yet</td></tr>';
+      $('#detectorRadioRows').innerHTML=sorted.filter(d=>d.alpr && d.tier>0).slice(0,8).map(render).join('')||
         '<tr><td colspan="4" class="dim">No matching radio devices yet</td></tr>';
     }
   }catch(e){}finally{radioBusy=false;}
 }
+async function setProfile(profile){
+  try{
+    const response=await fetch('/api/profile',{method:'POST',body:new URLSearchParams({profile})});
+    if(!response.ok)throw new Error();
+    radioLoaded=false;await pollRadio();await tick();toast(profile==='alpr'?'ALPR focus active':'General alerts active');
+  }catch(e){toast('Could not save detection profile');}
+}
+$('#alprProfile').onclick=()=>setProfile('alpr');
+$('#generalProfile').onclick=()=>setProfile('general');
+$('#deviceFilter').onchange=()=>pollRadio();
+$('#wardriveScanner').onclick=e=>{e.preventDefault();$('[data-tab=scanner]').click();};
 $('#radioSave').onclick=async()=>{
   const body=new URLSearchParams({mode:$('#radioMode').value,channel:$('#radioChannel').value,
     hop:$('#radioHop').value,

@@ -27,9 +27,14 @@ status = dict(detected=False, irDet=True, irEn=True, irPresent=True, irFreq=10.0
 radio = dict(supported=True, mode='dashboard',channel=1,ble=True,capture=False,
              watch='',target='',packets=180,dropped=0,logErrors=0,wifiReady=True,bleReady=True)
 devices = [dict(mac='B4:1E:52:00:00:01',protocol='WiFi',name='<img src=x onerror=alert(1)>',
-                category='Flock candidate',method='wildcard_probe',tier=3,rssi=-61,ageMs=120,count=2)]
+                category='Flock candidate',method='wildcard_probe',tier=3,alpr=True,rssi=-61,ageMs=120,count=2)]
 posts = []
 camera_requests = []
+status.update(profile='general',cameraReady=True,fusion=dict(mask=15,method='ir+camera+ble+wifi',
+    assessment='multiple_sources_nearby',ageMs=[100,200,150,80],radioTier=3))
+radio.update(bleScanning=True,profile='general')
+devices.append(dict(mac='10:11:12:01:02:03',protocol='BLE',category='Biscuit candidate',
+    name='Biscuit',method='biscuit_name_service',tier=3,alpr=False,rssi=-52,ageMs=100,count=1))
 with sync_playwright() as p:
     options = {'headless':True}
     if os.environ.get('FLOCKNOIR_BROWSER'):
@@ -47,6 +52,8 @@ with sync_playwright() as p:
         path = request.request.url.split('flocknoir.test')[-1]
         if request.request.method == 'POST':
             posts.append(request.request.post_data)
+            if path=='/api/profile':
+                status['profile']=parse_qs(request.request.post_data)['profile'][0]
             if path=='/api/settings':
                 fields=parse_qs(request.request.post_data,keep_blank_values=True)
                 for k in settings['alertKinds']:
@@ -71,24 +78,36 @@ with sync_playwright() as p:
     if os.environ.get('FLOCKNOIR_TEST_FONT'):
         page.add_style_tag(content=':root{--mono:"Courier New",monospace}')
     page.wait_for_function("document.querySelector('#bannerTxt').textContent.includes('IR + RADIO NEARBY')")
-    assert page.locator('.tab').count() == 4
+    assert page.locator('.tab').count() == 5
     assert 'by Valleytech' not in page.locator('body').inner_text()
     assert 'Your Pal Kal' in page.locator('footer').inner_text()
     assert page.locator('#rows script').count() == 0
     page.wait_for_function("document.querySelector('#detectorRadioRows').textContent.includes('B4:1E:52')")
     assert page.locator('#detectorRadioRows img').count() == 0
+    assert 'Biscuit' not in page.locator('#detectorRadioRows').inner_text()
+    assert 'ir+camera+ble+wifi' in page.locator('#fusionSummary').inner_text()
+    page.locator('#alprProfile').click()
+    page.wait_for_function("document.querySelector('#profileState').textContent.startsWith('ALPR focus active')")
+    assert any(body=='profile=alpr' for body in posts)
     status.update(irDet=False, radioEvents=3,
                   radioAlert=dict(category='Axon candidate',method='company_or_service',tier=2,alpr=False))
     page.evaluate('tick()')
-    page.wait_for_function("document.querySelector('#bannerTxt').textContent.includes('AXON CANDIDATE')")
+    page.wait_for_function("document.querySelector('#generalBannerTxt').textContent.includes('AXON CANDIDATE')")
     assert page.locator('#count').text_content() == '4'
     for width in (1100,390):
         page.set_viewport_size({'width':width,'height':1000})
         fits_viewport()
     status.update(irDet=True, radioAlert=None)
-    page.locator('[data-tab=wardrive]').click()
+    page.locator('[data-tab=scanner]').click()
     page.wait_for_function("document.querySelector('#radioRows').textContent.includes('B4:1E:52')")
     assert page.locator('#radioRows img').count() == 0
+    assert 'Biscuit' in page.locator('#radioRows').inner_text()
+    page.locator('#deviceFilter').select_option('biscuit')
+    page.wait_for_function("!document.querySelector('#radioRows').textContent.includes('B4:1E:52')")
+    assert 'Biscuit' in page.locator('#radioRows').inner_text()
+    page.locator('#deviceFilter').select_option('all')
+    page.locator('#generalProfile').click()
+    page.wait_for_function("document.querySelector('#generalProfileState').textContent.startsWith('General alerts active')")
     page.locator('#radioTarget').fill('AA:BB:CC:DD:EE:FF')
     page.locator('#radioSave').click()
     page.wait_for_function("document.querySelector('#toast').textContent==='Radio settings saved'")
@@ -143,7 +162,7 @@ with sync_playwright() as p:
     radio.update(supported=True, hardware='pi', modeHint='Pi: field mode hops the dedicated monitor adapter. The dashboard hotspot stays on.',
                  detail='Set RADIO_MONITOR_IFACE to a dedicated USB WiFi interface')
     page.reload()
-    page.locator('[data-tab=wardrive]').click()
+    page.locator('[data-tab=scanner]').click()
     page.wait_for_function("document.querySelector('#radioModeHint').textContent.includes('hotspot stays on')")
     assert 'BOOT' not in page.locator('#radioModeHint').text_content()
     page.locator('#radioMode').select_option('field')

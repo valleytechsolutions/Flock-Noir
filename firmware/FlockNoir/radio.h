@@ -4,7 +4,7 @@
 #include <freertos/queue.h>
 #include "radio_protocol.h"
 #include "radio_alert.h"
-#include "evidence.h"
+#include "fusion.h"
 
 struct RadioObservation {
   uint32_t ms=0;
@@ -21,7 +21,12 @@ public:
   bool configure(const String &mode,bool ble,bool capture,const String &watch,const String &target,int channel,const String &hop);
   String json() const;
   String rowsJson() const;
-  String alertJson() const;
+  String alertJson(bool alprOnly=false) const;
+  String fusionJson(uint32_t now) const;
+  AlprFusion::Snapshot fusion(uint32_t now) const {return _fusion.snapshot(now);}
+  void optical(bool ir,uint32_t at) {_fusion.observe(ir?AlprFusion::Ir:AlprFusion::Camera,at);}
+  bool setProfile(const String &profile);
+  const char *profile() const {return _alprFocus?"alpr":"general";}
   uint32_t events() const {return _events;}
   bool field() const { return _field; }
   bool recentAlpr(uint32_t now) const;
@@ -42,6 +47,8 @@ private:
     RadioProtocol::Drone drone;
   };
   Device _devices[64];
+  AlprFusion::Tracker _fusion;
+  bool _alprFocus=false;
   uint32_t _events=0,_alertRequests=0;
   uint32_t _irAt=0,_cameraAt=0;
   QueueHandle_t _queue=nullptr;

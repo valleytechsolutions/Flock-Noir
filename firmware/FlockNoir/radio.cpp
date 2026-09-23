@@ -78,7 +78,7 @@ void Radio::begin(bool sdReady) {
   Preferences prefs;
   if(prefs.begin("flockradio",true)) {
     _ble=prefs.getBool("ble",true);_watch=prefs.getString("watch","");_target=prefs.getString("target","");
-    _dashboardChannel=prefs.getUChar("channel",1);prefs.end();
+    _dashboardChannel=prefs.getUChar("channel",1);_alprFocus=prefs.getBool("alpr",false);prefs.end();
     if(prefs.begin("flockradio",true)) {_allChannels=prefs.getBool("allchan",false);prefs.end();}
   }
   if(_dashboardChannel<1 || _dashboardChannel>11) _dashboardChannel=1;
@@ -106,6 +106,17 @@ static bool validHex(const String &s,int digits,bool colon) {
     else {if(!isxdigit((unsigned char)s[i]))return false;++count;}
   }
   return count==digits;
+}
+bool Radio::setProfile(const String &profile) {
+  if(profile!="alpr" && profile!="general")return false;
+  Preferences prefs;if(!prefs.begin("flockradio",false))return false;
+  bool focus=profile=="alpr";
+  bool ok=prefs.putBool("alpr",focus)>0;
+  if(focus)ok=prefs.putBool("ble",true)>0 && prefs.putBool("allchan",false)>0 && ok;
+  prefs.end();if(!ok)return false;
+  _alprFocus=focus;if(focus){_ble=true;_allChannels=false;}
+  buzzer.clearAlerts();for(auto &d:_devices)d.encounter=RadioEncounter();
+  return true;
 }
 bool Radio::configure(const String &mode,bool ble,bool cap,const String &watch,const String &target,int channel,const String &hop) {
   if(hop!="priority" && hop!="all")return false;
@@ -175,6 +186,7 @@ void Radio::capture(const RadioObservation &o) {
 }
 void Radio::observe(const RadioObservation &o,const uint8_t *mac,const char *name,RadioProtocol::Match match,
  const RadioProtocol::Drone &drone,bool fix,double lat,double lon,const char *iso,bool ir,bool camera,bool muted) {
+  if(match.alpr && match.tier)_fusion.observe(o.kind?AlprFusion::Ble:AlprFusion::Wifi,o.ms,match.tier);
   Device *d=nullptr,*oldest=&_devices[0];
   for(auto &candidate:_devices) {
     if(candidate.used && candidate.ble==bool(o.kind) && !memcmp(candidate.mac,mac,6)) {d=&candidate;break;}
@@ -191,7 +203,7 @@ void Radio::observe(const RadioObservation &o,const uint8_t *mac,const char *nam
   if(match.tier && (match.tier>=d->tier || o.ms-d->matched>8000)) {d->matched=o.ms;d->tier=match.tier;d->alpr=match.alpr;strlcpy(d->category,match.category,sizeof(d->category));strlcpy(d->method,match.method,sizeof(d->method));}
   if(RadioProtocol::attention(match)) {
     bool fresh=d->encounter.observe(match.tier,o.ms);
-    if((fresh || opticalUpgrade) && !muted && buzzer.enabled()) {
+    if((fresh || opticalUpgrade) && (!_alprFocus || match.alpr) && !muted && buzzer.enabled()) {
       buzzer.requestAlert(AlertTones::classify(match,o.kind,ir,camera));++_alertRequests;
     }
   }
@@ -210,7 +222,7 @@ void Radio::observe(const RadioObservation &o,const uint8_t *mac,const char *nam
   String row="{\"schema\":1,\"time\":"+jsonQuote(iso)+",\"uptime_ms\":"+String(o.ms)+
     ",\"protocol\":"+jsonQuote(o.kind?"ble":"wifi")+",\"mac\":"+jsonQuote(macString(mac))+
     ",\"name\":"+jsonQuote(d->name)+",\"category\":"+jsonQuote(match.category)+",\"method\":"+jsonQuote(match.method)+
-    ",\"detection_method\":"+jsonQuote(detectionMethod(ir,camera,o.kind,!o.kind))+
+    ",\"detection_method\":"+jsonQuote((match.alpr?_fusion.snapshot(o.ms).method():detectionMethod(false,false,o.kind,!o.kind)))+
     ",\"tier\":"+String(match.tier)+",\"rssi\":"+String(o.rssi)+",\"channel\":"+String(o.channel)+
     ",\"alpr\":"+(match.alpr?"true":"false")+",\"assessment\":"+jsonQuote(RadioProtocol::assessment(match,ir,camera))+
     ",\"gps_valid\":"+(fix?"true":"false")+",\"lat\":"+jsonNumber(fix?lat:NAN)+",\"lon\":"+jsonNumber(fix?lon:NAN)+
@@ -265,8 +277,8 @@ void Radio::process(const RadioObservation &o,bool fix,double lat,double lon,dou
 }
 void Radio::update(bool fix,double lat,double lon,double alt,const char *iso,bool ir,bool camera,bool muted) {
   uint32_t now=millis();
-  if(ir)_irAt=now;
-  if(camera)_cameraAt=now;
+  if(ir){_irAt=now;optical(true,now);}
+  if(camera){_cameraAt=now;optical(false,now);}
   if(!digitalRead(RADIO_BOOT_PIN)) {
     if(!_bootPressed)_bootPressed=now;
     if(_bootPressed!=UINT32_MAX && now-_bootPressed>=1500) {
@@ -307,7 +319,7 @@ void Radio::update(bool fix,double lat,double lon,double alt,const char *iso,boo
   RadioObservation o;
   for(int i=0;_queue && i<8 && xQueueReceive(_queue,&o,0)==pdTRUE;++i)
     process(o,fix,lat,lon,alt,iso,opticalNearby(o.ms,_irAt),opticalNearby(o.ms,_cameraAt),muted);
-  for(const auto &d:_devices) if(d.used && _target==macString(d.mac) && now-d.seen<2500 &&
+  for(const auto &d:_devices) if(d.used && (!_alprFocus || d.alpr) && _target==macString(d.mac) && now-d.seen<2500 &&
     strcmp(d.method,"oui_addr1") && strcmp(d.method,"oui_addr3")) {
     uint32_t gap=constrain((-d.rssi-30)*25,120,2000);
     if(!muted && buzzer.enabled() && now-_trackBeep>=gap && !buzzer.isPlaying()) {buzzer.play("track:d=32,o=6,b=200:c");_trackBeep=now;}
@@ -325,10 +337,10 @@ RadioEvidence Radio::nearbyAlpr(uint32_t now) const {
   }
   return result;
 }
-void Radio::clearLive() {for(auto &d:_devices)d=Device();_lastAlpr=0;}
-String Radio::alertJson() const {
+void Radio::clearLive() {for(auto &d:_devices)d=Device();_lastAlpr=0;_fusion.clear();_irAt=_cameraAt=0;}
+String Radio::alertJson(bool alprOnly) const {
   const Device *best=nullptr;int score=0;uint32_t now=millis();
-  for(const auto &d:_devices) if(d.used && now-d.matched<=8000) {
+  for(const auto &d:_devices) if(d.used && (!alprOnly || d.alpr) && now-d.matched<=8000) {
     int p=RadioProtocol::priority({d.category,d.method,d.tier,d.alpr});
     if(p>score || (p && p==score && best && now-d.matched<now-best->matched)) {best=&d;score=p;}
   }
@@ -353,8 +365,16 @@ String Radio::rowsJson() const {
   }
   return s+"]";
 }
+String Radio::fusionJson(uint32_t now) const {
+  auto f=_fusion.snapshot(now);
+  String s="{\"windowMs\":3000,\"method\":"+jsonQuote(f.method())+",\"assessment\":"+jsonQuote(f.assessment())+
+    ",\"radioTier\":"+String(f.radioTier)+",\"mask\":"+String(f.mask)+",\"ageMs\":[";
+  for(int i=0;i<AlprFusion::Count;++i){if(i)s+=',';s+=f.age[i]<0?String("null"):String(f.age[i]);}
+  return s+"]}";
+}
 String Radio::json() const {
   return "{\"supported\":true,\"mode\":"+jsonQuote(_field?"field":"dashboard")+
+    ",\"profile\":"+jsonQuote(profile())+
     ",\"hop\":"+jsonQuote(_allChannels?"all":"priority")+
     ",\"channel\":"+String(_channel)+",\"ble\":"+(_ble?"true":"false")+",\"bleScanning\":"+(_bleScanning?"true":"false")+
     ",\"wifiReady\":"+(_wifiReady?"true":"false")+",\"bleReady\":"+(_bleReady && !bleFault?"true":"false")+

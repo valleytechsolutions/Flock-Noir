@@ -10,12 +10,8 @@ struct RadioEvidence {
 
 // These describe observed sensors, not proof that they belong to one device.
 inline const char *detectionMethod(bool ir,bool camera,bool ble,bool wifi) {
-  if(ir && camera && ble)return "ir+camera+ble";
-  if(ir && camera && wifi)return "ir+camera+wifi";
-  if(ir && ble)return "ir+ble";
-  if(ir && wifi)return "ir+wifi";
-  if(camera && ble)return "camera+ble";
-  if(camera && wifi)return "camera+wifi";
-  if(ir && camera)return "ir+camera";
-  return ir?"ir":camera?"camera":ble?"ble":wifi?"wifi":"unknown";
+  static constexpr const char *methods[]={"unknown","ir","camera","ir+camera",
+    "ble","ir+ble","camera+ble","ir+camera+ble","wifi","ir+wifi","camera+wifi",
+    "ir+camera+wifi","ble+wifi","ir+ble+wifi","camera+ble+wifi","ir+camera+ble+wifi"};
+  return methods[(ir?1:0)|(camera?2:0)|(ble?4:0)|(wifi?8:0)];
 }

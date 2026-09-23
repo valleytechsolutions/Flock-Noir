@@ -1,8 +1,8 @@
-# Radio and IR detection in Flock Noir 0.4.4
+# Radio and IR detection in Flock Noir 0.5.0
 
 The XIAO ESP32-S3 Sense build combines OPT101 pulse sampling, OV2640 camera
 analysis, passive WiFi observations, BLE advertisements, GPS and SD logging.
-The original four-tab interface remains the control panel. Pi 0.4.4 shares the
+The original visual style remains, with dedicated ALPR and Scanner tabs. Pi 0.5.0 shares the
 native pulse/radio parsers and APIs, with MCP3008 input, legacy BLE HCI scanning,
 and a separate monitor-capable USB WiFi adapter for passive packets. See
 [Pi Zero 2 W setup](../pi/README.md#radio-and-opt101-update-044).
@@ -303,3 +303,71 @@ The passive radio rules are checked against
 34 OUI prefixes, transmitter/receiver paths, wildcard probes and the IE
 fingerprint, plus passive BLE accessory signatures. The XIAO still shares
 one radio between WiFi and BLE; coverage is intermittent while hopping.
+
+
+## ALPR focus and evidence fusion (0.5.0)
+
+The ALPR tab lists only ALPR radio candidates and shows four evidence sources:
+OPT101 timing, camera pulse pattern, Flock BLE and Flock WiFi/OUI. The shared C++
+`AlprFusion::Tracker` accepts timestamps in either arrival order and expires each
+source after 3 seconds. The Pi uses the same assessment implementation through
+its native library. Delayed queue items cannot replace newer XIAO evidence;
+unsigned timestamp differences handle millis rollover.
+
+- Optical alone, weak radio hints or OUI candidates: `possible_camera`.
+- Tier 3+ radio signature alone: `camera_signature_match`.
+- Tier 2+ radio plus either optical source: `corroborated_camera_candidate`.
+- Tier 2+ radio plus both optical sources: `multiple_sources_nearby`.
+- No unexpired evidence: `no_recent_evidence`, **not** a camera absence claim.
+
+`GET /api/status` includes `fusion` (source mask, ages, assessment and combined
+method), `alprAlert` and `profile`. Mask bits 0–3 are IR, camera, BLE and WiFi.
+`POST /api/profile` accepts `profile=alpr` or `profile=general` and persists it.
+Focus enables BLE and priority hopping without disconnecting the dashboard or
+arming an unwired sensor. Field mode must still be selected in Scanner to hop
+channels. Dashboard mode sees its current channel; WiFi and BLE share a radio.
+On the Pi a monitor-capable USB adapter is still required for packet capture.
+
+CSV source is the triggering sensor/packet. `detection_method` includes nearby
+sources within the window; a combined method does not prove a shared emitter.
+Radio MACs remain distinct in JSONL. The fusion assessment is a summary of the
+local scene; CSV `assessment` retains the candidate's tier/optical assessment.
+There is no machine-vision ALPR identification, plate recognition, wavelength
+measurement, range guarantee or universal ALPR pulse frequency.
+
+Scanner shows all signature matches and supports category filters. ALPR focus
+suppresses non-ALPR automatic sounds and tracking beeps, while continuing their
+logs and table updates. General alerts restores each device's assigned sound.
+Switching profile clears pending audio, so old alerts are not played afterward.
+The profile and radio mode are separate; tab navigation does not change either.
+
+### Biscuit and Pineapple Pager coverage
+
+[CodeHedge's GATT reference](https://codehedge.github.io/Biscuit-Wiki/3rd-party-integration/gatt-reference.html)
+documents the advertised name `Biscuit` and service
+`4fafc201-1fb5-459e-8fcc-c5c9c331914b`. An exact case-insensitive name is a tier 2
+candidate; name plus service in the same advertisement is tier 3. The UUID is
+also used by [Espressif's BLE Server example](https://github.com/espressif/arduino-esp32/blob/master/libraries/BLE/examples/Server/Server.ino),
+so UUID alone does not identify Biscuit. Passive scanning may miss a name placed
+only in a scan response. No BLE connections or pairing are initiated.
+
+[Hak5's WiFi Pineapple Pager](https://documentation.hak5.org/wifi-pineapple-pager)
+is included at the Pineapple-family candidate level only, when an AP advertises
+one of the supported recognizable names. No distinct Pager OUI, Bluetooth
+signature or sub-GHz pager decoder was verified or added. The XIAO scans 2.4 GHz
+WiFi/BLE, not 5/6 GHz WiFi or pager radio bands. A silent or renamed Pineapple
+cannot be reliably identified by these rules. Use the watchlist for known local
+MACs/names, without treating a custom rule as manufacturer confirmation.
+
+### Web flasher and deployment
+
+[Open the browser installer](https://valleytechsolutions.github.io/Flock-Noir/).
+The pinned ESP Web Tools 10.4.0 installer requires HTTPS and desktop Chrome/Edge.
+The GitHub Pages deployment follows a successful XIAO tagged-release build.
+`tools/build_flasher.py` verifies version, board, size and SHA-256 before staging
+four image parts. Offsets are 0x0, 0x8000, 0xe000 and 0x10000. The NVS range
+0x9000–0xdfff is excluded, preserving settings when Erase device is unchecked.
+Erase device resets NVS deliberately; flashing never formats the microSD card.
+The merged download written at 0x0 includes NVS padding and can reset settings;
+use the web installer's split parts or PlatformIO upload for preservation.
+The ESP32-S3 chip check cannot verify XIAO-specific board wiring.

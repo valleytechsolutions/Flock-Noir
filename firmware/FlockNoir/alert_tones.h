@@ -5,7 +5,7 @@
 
 // Stable IDs are persisted separately from the user's existing RTTTL library.
 namespace AlertTones {
-enum Kind : uint8_t { Combined, Ir, Ble, Wifi, Camera, Axon, Ring, Meta, Flipper, Pineapple, Drone, Other, Count };
+enum Kind : uint8_t { Combined, Ir, Ble, Wifi, Camera, Axon, Ring, Meta, Flipper, Pineapple, Drone, Other, Biscuit, Count };
 struct Preset { const char *id; const char *name; const char *rtttl; };
 static constexpr Preset presets[] = {
   {"retro", "Retro blaster", "Blaster:d=16,o=6,b=180:c,g,c7,p,a#,g,8c7"},
@@ -18,9 +18,9 @@ static constexpr Preset presets[] = {
   {"chirp", "Triple chirp", "Chirp:d=32,o=7,b=200:c,p,c,p,c"},
   {"silent", "Silent", ""},
 };
-static constexpr const char *ids[] = {"alpr_combined","alpr_ir","alpr_ble","alpr_wifi","camera","axon","ring","meta","flipper","pineapple","drone","other"};
-static constexpr const char *labels[] = {"ALPR radio + optical","ALPR pulse / OPT101","ALPR / Flock BLE","ALPR / Flock Wi-Fi","Camera pulse candidate","Axon candidate","Ring candidate","Meta glasses","Flipper Zero","Wi-Fi Pineapple","Drone","Other watchlist devices"};
-static constexpr const char *defaults[] = {"retro","retro","retro","retro","retro","siren","ring","confused","flipper","pineapple","drone","chirp"};
+static constexpr const char *ids[] = {"alpr_combined","alpr_ir","alpr_ble","alpr_wifi","camera","axon","ring","meta","flipper","pineapple","drone","other","biscuit"};
+static constexpr const char *labels[] = {"ALPR radio + optical","ALPR pulse / OPT101","ALPR / Flock BLE","ALPR / Flock Wi-Fi","Camera pulse candidate","Axon candidate","Ring candidate","Meta glasses","Flipper Zero","Wi-Fi Pineapple","Drone","Other watchlist devices","Biscuit candidate"};
+static constexpr const char *defaults[] = {"retro","retro","retro","retro","retro","siren","ring","confused","flipper","pineapple","drone","chirp","flipper"};
 inline const Preset *preset(const char *id) {
   for(const auto &p:presets)if(!strcmp(p.id,id))return &p;
   return nullptr;
@@ -40,6 +40,7 @@ inline Kind classify(const RadioProtocol::Match &m,bool ble,bool ir,bool camera)
   if(RadioProtocol::contains(m.category,"Ring"))return Ring;
   if(RadioProtocol::contains(m.category,"Meta"))return Meta;
   if(RadioProtocol::contains(m.category,"Flipper"))return Flipper;
+  if(RadioProtocol::contains(m.category,"Biscuit"))return Biscuit;
   if(RadioProtocol::contains(m.category,"Pineapple"))return Pineapple;
   if(RadioProtocol::contains(m.category,"Drone") || RadioProtocol::contains(m.category,"DJI") ||
      RadioProtocol::contains(m.category,"Parrot") || RadioProtocol::contains(m.category,"Skydio"))return Drone;

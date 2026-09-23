@@ -19,6 +19,7 @@ jobs:
           /tmp/detection_test
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -I firmware/FlockNoir tests/jpeg_test.cpp -o /tmp/jpeg_test
           /tmp/jpeg_test
+          python -m unittest discover -s tests -p test_flasher.py -v
       - name: Check generated UI
         run: |
           python tools/html2header.py
@@ -62,3 +63,32 @@ jobs:
             binaries/FlockNoir-merged-0x0.bin \
             binaries/FlockNoir-merged-0x0.bin.sha256 \
             binaries/BUILD.md
+
+  deploy-flasher:
+    if: startsWith(github.ref, 'refs/tags/xiao-v')
+    needs: release-xiao
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Stage verified XIAO release and settings-preserving flash parts
+        run: python tools/build_flasher.py --out _site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - name: Deploy browser flasher
+        id: deployment
+        uses: actions/deploy-pages@v4
