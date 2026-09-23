@@ -1,13 +1,17 @@
-# Flock Noir 0.4.3 - Raspberry Pi Zero 2 W
+# Flock Noir 0.4.4 - Raspberry Pi Zero 2 W
 
 Installable Raspberry Pi OS Lite arm64 image with Flock Noir, the shared XIAO/Pi
 pulse and radio parsers, unchanged dashboard design, BLE scanning, WiFi candidate
 detection, watchlists, Remote ID, evidence logs and capture downloads.
 
-This release adds the omitted Flock-You serial/DFU hints, Flipper BLE and
-Pineapple SSID candidates, Detector-tab radio alerts/history, and Mario sounds
-for new ALPR/Flock, Axon, Meta and tool-device encounters. Duplicate packets
-stay quiet; mute/buzzer controls apply. Weak/shared signatures remain hints.
+This release adds configurable device-specific sounds, a combined optical/radio
+CSV with explicit detection methods, audible Ring candidates, and selectable
+1/6/11 or 1–11 field scans. The header byline is removed and the footer credits
+Your Pal Kal. Existing custom RTTTL tones are preserved. ALPR candidates use a
+retro blaster, Axon a siren, and Ring/Meta questioning tones by default; every
+category can be changed or silenced in Settings. The 34-prefix Flock-You rules
+remain active. Optical timing and radio signatures are evidence, not proof of
+camera identity.
 
 Flash `flocknoir-pi.img.xz` with Raspberry Pi Imager's **Use custom** option.
 Verify the adjacent SHA-256 checksum. Join **Flock Noir**, password **flocknoir**,

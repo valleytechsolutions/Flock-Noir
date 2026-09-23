@@ -3,6 +3,13 @@
 #include <stdint.h>
 #include <string.h>
 
+// This hot path must finish within one VGA frame interval even in textured
+// scenes. Optimize the decoder independently of Arduino's size-first defaults.
+#if defined(ARDUINO_ARCH_ESP32) && defined(__GNUC__)
+#pragma GCC push_options
+#pragma GCC optimize ("O3")
+#endif
+
 // Baseline JPEG block-average luminance, implemented from ITU-T T.81.
 // DC * quantizer / 8 + 128 is the mean of an 8x8 Y block. Consume AC codes
 // without IDCT/color conversion. This is a brightness sensor, not a renderer.
@@ -63,12 +70,16 @@ class JpegLuma {
   static uint16_t word(const uint8_t *p){return uint16_t(p[0])<<8|p[1];}
   static int symbol(Bits &bits,const Huffman &table) {
     if(!table.valid)return -1;
+    unsigned code=0,length=1;
     if(bits.fill(8)) {
-      uint16_t fast=table.fast[(bits.cache>>(bits.available-8))&255];
+      code=(bits.cache>>(bits.available-8))&255;
+      uint16_t fast=table.fast[code];
       if(fast){bits.available-=fast>>8;return fast&255;}
+      // A lookup miss already proves the code is longer than eight bits.
+      // Consume that prefix once instead of rereading it one bit at a time.
+      bits.available-=8;length=9;
     }
-    unsigned code=0;
-    for(unsigned length=1;length<=16;++length) {
+    for(;length<=16;++length) {
       code=(code<<1)|bits.get(1);if(bits.bad)return -1;
       if(code>=table.first[length] && code-table.first[length]<table.count[length])
         return table.value[table.base[length]+code-table.first[length]];
@@ -170,3 +181,6 @@ public:
     return !bits.bad && bits.marker(0xd9);
   }
 };
+#if defined(ARDUINO_ARCH_ESP32) && defined(__GNUC__)
+#pragma GCC pop_options
+#endif

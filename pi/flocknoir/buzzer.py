@@ -5,12 +5,11 @@ Uses gpiozero's TonalBuzzer (software PWM) on a BCM GPIO pin. The tone library
 to settings.json so the same Settings tab works as on the XIAO build.
 """
 import json
-import math
-import os
 import threading
 import time
 
 import config as C
+from .alerts import PRESETS, KINDS, DEFAULTS, AlertQueue, valid
 
 try:
     from gpiozero import TonalBuzzer
@@ -80,7 +79,11 @@ class Buzzer:
         self.enabled = True
         self.alert_idx = 0
         self.tones = list(C.DEFAULT_TONES)
-        self._lock = threading.Lock()
+        self.alert_sounds = dict(DEFAULTS)
+        self.alert_queue = AlertQueue()
+        self._lock = threading.RLock()
+        self._muted = False
+        self._was_enabled = True
         self._stop = threading.Event()
         self._thread = None
         self._tb = None
@@ -102,19 +105,25 @@ class Buzzer:
             t = s.get("tones")
             if isinstance(t, list) and t:
                 self.tones = [(x.get("name", ""), x.get("rtttl", "")) for x in t][:C.BUZZER_MAX_TONES]
+            for kind, sound in s.get("alertSounds", {}).items():
+                if kind in DEFAULTS and valid(sound, len(self.tones)):
+                    self.alert_sounds[kind] = sound
         except (OSError, ValueError):
             pass
-        if self.alert_idx >= len(self.tones):
+        if not 0 <= self.alert_idx < len(self.tones):
             self.alert_idx = 0
 
     def save(self):
         from .settings import save_section
         save_section("buzzer", {"enabled": self.enabled, "alertIdx": self.alert_idx,
+                                "alertSounds": self.alert_sounds,
                                 "tones": [{"name": n, "rtttl": r} for n, r in self.tones]})
 
     def to_json(self):
         return {"enabled": self.enabled, "alertIdx": self.alert_idx,
                 "max": C.BUZZER_MAX_TONES,
+                "alertKinds": [dict(id=k, name=n, sound=self.alert_sounds[k]) for k,n,_ in KINDS],
+                "soundPresets": [dict(id=k, name=n, rtttl=r) for k,n,r in PRESETS],
                 "tones": [{"name": n, "rtttl": r} for n, r in self.tones]}
 
     # ---- playback -----------------------------------------------------------
@@ -125,10 +134,11 @@ class Buzzer:
         notes = parse_rtttl(rtttl)
         if not notes:
             return
-        self.stop()
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._run, args=(notes,), daemon=True)
-        self._thread.start()
+        with self._lock:
+            self.stop()
+            self._stop.clear()
+            self._thread = threading.Thread(target=self._run, args=(notes,), daemon=True)
+            self._thread.start()
 
     def play_alert(self):
         if self.enabled and self.tones:
@@ -136,13 +146,43 @@ class Buzzer:
 
     def play_device_alert(self):
         if self.enabled:
-            self.play(C.DEVICE_ALERT_RTTTL)
+            self.play_sound(self.alert_sounds["alpr_ble"])
+
+    def play_sound(self, sound):
+        if not valid(sound, len(self.tones)):
+            raise ValueError("Invalid sound")
+        if sound.startswith("slot:"):
+            self.play(self.tones[int(sound[-1])][1])
+        else:
+            rtttl = next(r for k,_,r in PRESETS if k == sound)
+            if rtttl:
+                self.play(rtttl)
+            else:
+                self.stop()
+
+    def request_alert(self, kind):
+        if self.enabled:
+            self.alert_queue.request(kind, time.monotonic())
+
+    def update(self, muted=False):
+        if (muted and not self._muted) or (not self.enabled and self._was_enabled):
+            self.stop()
+        self._muted, self._was_enabled = muted, self.enabled
+        if muted or not self.enabled:
+            self.alert_queue.clear()
+            return False
+        kind = self.alert_queue.take(time.monotonic(), muted, self.enabled, self.is_playing())
+        if kind is not None:
+            self.play_sound(self.alert_sounds[kind])
+            return self.alert_sounds[kind] != "silent"
+        return False
 
     def stop(self):
-        self._stop.set()
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=0.5)
-        self._silence()
+        with self._lock:
+            self._stop.set()
+            if self._thread and self._thread.is_alive():
+                self._thread.join(timeout=0.5)
+            self._silence()
 
     def _silence(self):
         if self._tb:
@@ -162,5 +202,6 @@ class Buzzer:
                     self._silence()          # out of range: rest
             else:
                 self._silence()
-            time.sleep(ms / 1000.0)
+            if self._stop.wait(ms / 1000.0):
+                break
         self._silence()

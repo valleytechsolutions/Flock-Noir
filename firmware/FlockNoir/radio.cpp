@@ -79,6 +79,7 @@ void Radio::begin(bool sdReady) {
   if(prefs.begin("flockradio",true)) {
     _ble=prefs.getBool("ble",true);_watch=prefs.getString("watch","");_target=prefs.getString("target","");
     _dashboardChannel=prefs.getUChar("channel",1);prefs.end();
+    if(prefs.begin("flockradio",true)) {_allChannels=prefs.getBool("allchan",false);prefs.end();}
   }
   if(_dashboardChannel<1 || _dashboardChannel>11) _dashboardChannel=1;
   _channel=_dashboardChannel;
@@ -106,7 +107,8 @@ static bool validHex(const String &s,int digits,bool colon) {
   }
   return count==digits;
 }
-bool Radio::configure(const String &mode,bool ble,bool cap,const String &watch,const String &target,int channel) {
+bool Radio::configure(const String &mode,bool ble,bool cap,const String &watch,const String &target,int channel,const String &hop) {
+  if(hop!="priority" && hop!="all")return false;
   if((mode!="field" && mode!="dashboard") || channel<1 || channel>11 || watch.length()>1024 ||
      (target.length() && (target.length()!=17 || !validHex(target,12,true)))) return false;
   for(int pos=0;pos<int(watch.length());) {
@@ -123,9 +125,11 @@ bool Radio::configure(const String &mode,bool ble,bool cap,const String &watch,c
   Preferences prefs;
   if(!prefs.begin("flockradio",false))return false;
   bool ok=prefs.putBool("ble",ble)>0 && prefs.putString("watch",watch)==watch.length() &&
-    prefs.putString("target",target)==target.length() && prefs.putUChar("channel",channel)>0;
+    prefs.putString("target",target)==target.length() && prefs.putUChar("channel",channel)>0 &&
+    prefs.putBool("allchan",hop=="all")>0;
   prefs.end();if(!ok)return false;
   _ble=ble;_capture=cap;_watch=watch;_target=target;_target.toUpperCase();
+  _allChannels=hop=="all";
   captureAll=cap;customWatch=watch.length()>0 || target.length()>0;
   _desiredField=mode=="field";_dashboardChannel=channel;_switchAt=millis()+1200;
   return true;
@@ -187,7 +191,9 @@ void Radio::observe(const RadioObservation &o,const uint8_t *mac,const char *nam
   if(match.tier && (match.tier>=d->tier || o.ms-d->matched>8000)) {d->matched=o.ms;d->tier=match.tier;d->alpr=match.alpr;strlcpy(d->category,match.category,sizeof(d->category));strlcpy(d->method,match.method,sizeof(d->method));}
   if(RadioProtocol::attention(match)) {
     bool fresh=d->encounter.observe(match.tier,o.ms);
-    if((fresh || opticalUpgrade) && !muted && buzzer.enabled())_alertGate.request(o.ms);
+    if((fresh || opticalUpgrade) && !muted && buzzer.enabled()) {
+      buzzer.requestAlert(AlertTones::classify(match,o.kind,ir,camera));++_alertRequests;
+    }
   }
   if(drone.types) {
     if(*drone.id)strlcpy(d->drone.id,drone.id,sizeof(d->drone.id));
@@ -204,6 +210,7 @@ void Radio::observe(const RadioObservation &o,const uint8_t *mac,const char *nam
   String row="{\"schema\":1,\"time\":"+jsonQuote(iso)+",\"uptime_ms\":"+String(o.ms)+
     ",\"protocol\":"+jsonQuote(o.kind?"ble":"wifi")+",\"mac\":"+jsonQuote(macString(mac))+
     ",\"name\":"+jsonQuote(d->name)+",\"category\":"+jsonQuote(match.category)+",\"method\":"+jsonQuote(match.method)+
+    ",\"detection_method\":"+jsonQuote(detectionMethod(ir,camera,o.kind,!o.kind))+
     ",\"tier\":"+String(match.tier)+",\"rssi\":"+String(o.rssi)+",\"channel\":"+String(o.channel)+
     ",\"alpr\":"+(match.alpr?"true":"false")+",\"assessment\":"+jsonQuote(RadioProtocol::assessment(match,ir,camera))+
     ",\"gps_valid\":"+(fix?"true":"false")+",\"lat\":"+jsonNumber(fix?lat:NAN)+",\"lon\":"+jsonNumber(fix?lon:NAN)+
@@ -215,6 +222,9 @@ void Radio::observe(const RadioObservation &o,const uint8_t *mac,const char *nam
     ",\"heading_deg\":"+jsonNumber(d->drone.heading,1)+",\"pilot_lat\":"+jsonNumber(d->drone.pilotLat)+
     ",\"pilot_lon\":"+jsonNumber(d->drone.pilotLon)+",\"odid_types\":"+String(d->drone.types)+"}";
   if(_sd) {File f=SD.open(_logPath,FILE_APPEND);if(!f || f.println(row)!=row.length()+2)++_logErrors;}
+  extern void logRadioHit(uint32_t observed,const char *iso,bool fix,double lat,double lon,
+    const char *protocol,const char *mac,RadioProtocol::Match match,int rssi,bool ir,bool camera);
+  logRadioHit(o.ms,iso,fix,lat,lon,o.kind?"ble":"wifi",macString(mac).c_str(),match,o.rssi,ir,camera);
   extern bool g_serialReplyActive;
   if(!g_serialReplyActive && Serial && Serial.availableForWrite()>int(row.length()+2))Serial.println(row);
 }
@@ -278,7 +288,7 @@ void Radio::update(bool fix,double lat,double lon,double alt,const char *iso,boo
     if(!ok) {Serial.println("[RADIO] mode change failed; retrying");_switchAt=now+2000;}
   }
   if(_field && now-_hopAt>=RADIO_DWELL_MS) {
-    _hopAt=now;uint8_t next=_channel>=11?1:_channel+1;
+    _hopAt=now;uint8_t next=_allChannels?(_channel>=11?1:_channel+1):(_channel==1?6:_channel==6?11:1);
     if(esp_wifi_set_channel(next,WIFI_SECOND_CHAN_NONE)==ESP_OK)_channel=next;
   }
   if(now-_retryAt>=2000) {
@@ -297,15 +307,25 @@ void Radio::update(bool fix,double lat,double lon,double alt,const char *iso,boo
   RadioObservation o;
   for(int i=0;_queue && i<8 && xQueueReceive(_queue,&o,0)==pdTRUE;++i)
     process(o,fix,lat,lon,alt,iso,opticalNearby(o.ms,_irAt),opticalNearby(o.ms,_cameraAt),muted);
-  if(_alertGate.take(millis(),muted,buzzer.enabled(),buzzer.isPlaying())) {buzzer.playDeviceAlert();++_audibleAlerts;}
   for(const auto &d:_devices) if(d.used && _target==macString(d.mac) && now-d.seen<2500 &&
     strcmp(d.method,"oui_addr1") && strcmp(d.method,"oui_addr3")) {
     uint32_t gap=constrain((-d.rssi-30)*25,120,2000);
-    if(!muted && now-_trackBeep>=gap && !buzzer.isPlaying()) {buzzer.play("track:d=32,o=6,b=200:c");_trackBeep=now;}
+    if(!muted && buzzer.enabled() && now-_trackBeep>=gap && !buzzer.isPlaying()) {buzzer.play("track:d=32,o=6,b=200:c");_trackBeep=now;}
   }
 }
 bool Radio::recentAlpr(uint32_t now) const {return _lastAlpr && now-_lastAlpr<=RADIO_CORRELATE_MS;}
-void Radio::clearLive() {for(auto &d:_devices)d=Device();_lastAlpr=0;_alertGate.pending=false;}
+RadioEvidence Radio::nearbyAlpr(uint32_t now) const {
+  RadioEvidence result;
+  for(const auto &d:_devices) {
+    if(!d.used || !d.alpr || d.tier<2 || !opticalNearby(now,d.matched))continue;
+    if(result.found && result.match.tier>=d.tier)continue;
+    result.found=true;result.ble=d.ble;result.rssi=d.rssi;
+    result.match={d.category,d.method,d.tier,d.alpr};
+    strlcpy(result.mac,macString(d.mac).c_str(),sizeof(result.mac));
+  }
+  return result;
+}
+void Radio::clearLive() {for(auto &d:_devices)d=Device();_lastAlpr=0;}
 String Radio::alertJson() const {
   const Device *best=nullptr;int score=0;uint32_t now=millis();
   for(const auto &d:_devices) if(d.used && now-d.matched<=8000) {
@@ -335,12 +355,13 @@ String Radio::rowsJson() const {
 }
 String Radio::json() const {
   return "{\"supported\":true,\"mode\":"+jsonQuote(_field?"field":"dashboard")+
+    ",\"hop\":"+jsonQuote(_allChannels?"all":"priority")+
     ",\"channel\":"+String(_channel)+",\"ble\":"+(_ble?"true":"false")+",\"bleScanning\":"+(_bleScanning?"true":"false")+
     ",\"wifiReady\":"+(_wifiReady?"true":"false")+",\"bleReady\":"+(_bleReady && !bleFault?"true":"false")+
     ",\"capture\":"+(_capture?"true":"false")+",\"packets\":"+String(_packets.load())+
     ",\"dropped\":"+String(_dropped.load())+",\"logErrors\":"+String(_logErrors)+
     ",\"freeHeap\":"+String(ESP.getFreeHeap())+",\"minFreeHeap\":"+String(ESP.getMinFreeHeap())+
     ",\"captureFull\":"+(_pcapBytes>=CAPTURE_LIMIT || _bleBytes>=CAPTURE_LIMIT?"true":"false")+
-    ",\"events\":"+String(_events)+",\"audibleAlerts\":"+String(_audibleAlerts)+
+    ",\"events\":"+String(_events)+",\"audibleAlerts\":"+String(buzzer.alertsPlayed())+",\"alertRequests\":"+String(_alertRequests)+
     ",\"watch\":"+jsonQuote(_watch)+",\"target\":"+jsonQuote(_target)+"}";
 }

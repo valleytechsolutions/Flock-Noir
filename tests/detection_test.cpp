@@ -1,6 +1,9 @@
 #include "pulse_detector.h"
 #include "radio_protocol.h"
 #include "radio_alert.h"
+#include "alert_tones.h"
+#include "evidence.h"
+#include "gps_time.h"
 #include "detector.h"
 #include <cassert>
 #include <cstdio>
@@ -11,6 +14,10 @@ static void train(PulseDetector &p,uint32_t &us,int period=100,int width=20,int 
   for(int ms=0;ms<duration;++ms) {us+=1000;p.feed(200+((ms%period)<width?650:0),us);}
 }
 int main() {
+  assert(!validGpsDate(2000,0,0));
+  assert(validGpsDate(2026,9,23));
+  assert(!validGpsDate(2026,2,29));
+  assert(validGpsDate(2028,2,29));
   Detector camera;
   for(int blob:{100,19200}) {
     camera.begin(19200);
@@ -28,6 +35,7 @@ int main() {
   us+=20000;p.feed(200,us);assert(!p.matched && p.gaps==1);
   train(p,us);assert(p.matched);us+=1000;p.feed(4095,us);assert(!p.matched && p.clipped);
   for(int period:{10,20,50,200}) {p.reset();train(p,us,period,period/5);assert(!p.matched);}
+  for(int period:{84,100,125}) {p.reset();train(p,us,period,20);assert(p.matched);}
   for(int width:{1,5,50,80}) {p.reset();train(p,us,100,width);assert(!p.matched);}
   p.reset();us=0xffff0000;for(int i=0;i<300;++i){us+=1000;p.feed(200,us);}train(p,us);assert(p.matched);
   p.reset();std::mt19937 rng(1234);
@@ -81,20 +89,40 @@ int main() {
   uint8_t axon[]={0,0x25,0xdf,1,2,3};
   assert(attention(bleMatch(Advert(),axon,true)));
   assert(!bleMatch(Advert(),axon,false).tier);
+  uint8_t ring[]={0x18,0x7f,0x88,1,2,3};
+  assert(attention(bleMatch(Advert(),ring,true)));
+  assert(!bleMatch(Advert(),ring,false).tier);
+  { using namespace AlertTones;
+  assert(classify({"Flock candidate","oui",2,true},true,false,false)==Ble);
+  assert(classify({"Flock candidate","oui",2,true},true,true,false)==Combined);
+  assert(classify({"Flock hint","oui",1,true},true,true,false)==Ble);
+  assert(classify({"Axon candidate","company_id",2,false},true,true,false)==Axon);
+  assert(classify({"Ring","oui",1,false},false,false,false)==Ring);
+  assert(classify({"Meta glasses","meta_composite",3,false},true,false,false)==Meta);
+  assert(!strcmp(detectionMethod(true,false,true,false),"ir+ble"));
+  assert(!strcmp(detectionMethod(false,false,true,false),"ble"));
+  assert(!strcmp(detectionMethod(true,true,false,true),"ir+camera+wifi"));
+  assert(AlertTones::valid("retro",3) && AlertTones::valid("slot:2",3));
+  assert(!AlertTones::valid("slot:3",3) && !AlertTones::valid("slot:-1",3));
+  AlertTones::Queue sounds;Kind next;
+  sounds.request(Meta,100);sounds.request(Axon,100);sounds.request(Combined,100);
+  assert(!sounds.take(100,false,true,true,next));
+  assert(sounds.take(101,false,true,false,next) && next==Combined);
+  assert(sounds.take(102,false,true,false,next) && next==Axon);
+  assert(sounds.take(103,false,true,false,next) && next==Meta);
+  sounds.request(Meta,104);assert(!sounds.take(105,false,true,false,next));
+  sounds.request(Meta,4200);assert(!sounds.take(4201,true,true,false,next));
+  assert(!sounds.take(4202,false,true,false,next));
+  sounds.request(Ring,5000);assert(!sounds.take(35001,false,true,false,next));
+  sounds.request(Ir,0xfffffff0);assert(sounds.take(0x10,false,true,false,next) && next==Ir);
+  }
   const uint8_t axonCid[]={3,0xff,0x4d,3};
   assert(attention(bleMatch(advert(axonCid,sizeof(axonCid)),unknown,false)));
-  RadioEncounter encounter;RadioAlertGate gate;
+  RadioEncounter encounter;
   assert(encounter.observe(1,0xfffffff0));
   assert(!encounter.observe(1,0x10));
   assert(encounter.observe(3,0x20));
   assert(encounter.observe(1,0x20+60000));
-  gate.request(1);assert(!gate.take(2,false,true,true)); // keep busy alert pending
-  assert(gate.take(3,false,true,false));
-  gate.request(4);assert(!gate.take(5,false,true,false));
-  assert(gate.take(4003,false,true,false));
-  gate.request(5000);assert(!gate.take(5001,true,true,false));assert(!gate.pending);
-  gate.request(5000);assert(!gate.take(5001,false,false,false));assert(!gate.pending);
-  gate.request(5000);assert(!gate.take(14000,false,true,false));assert(!gate.pending);
   const uint8_t cid[]={3,0xff,0x53,0x0d},svc[]={3,3,0x5f,0xfd};
   assert(!bleMatch(advert(cid,sizeof(cid)),group,true).tier);
   assert(!bleMatch(advert(svc,sizeof(svc)),group,true).tier);

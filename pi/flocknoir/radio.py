@@ -14,14 +14,16 @@ import uuid
 
 import config as C
 from . import native, settings
+from .alerts import classify, detection_method
 from .radio_transport import (advertising_reports, command, hci_command,
                               open_hci, prepare_monitor, radiotap)
 
 
 class Radio:
-    def __init__(self, gps, ir, camera, buzzer, wardriver, state, start=True):
+    def __init__(self, gps, ir, camera, buzzer, wardriver, state, start=True, logger=None):
         self.gps, self.ir, self.camera, self.buzzer = gps, ir, camera, buzzer
         self.wardriver, self.state = wardriver, state
+        self.logger = logger
         self.lock = threading.RLock()
         self.stop_event = threading.Event()
         self.queue = queue.Queue(maxsize=256)
@@ -33,12 +35,11 @@ class Radio:
         if self.channel not in C.RADIO_CHANNELS:
             self.channel = self.dashboard_channel = 1
         self.mode, self.capture = "dashboard", False
+        self.hop = prefs.get("hop", "priority")
         self.wifi_ready = self.ble_ready = self.ble_scanning = False
         self.wifi_error = self.ble_error = self.native_error = ""
         self.packets = self.dropped = self.log_errors = 0
         self.last_alpr = self.last_tone = 0.
-        self.pending_alert = None
-        self.last_alert = None
         self.events = self.audible_alerts = 0
         self.ir_at = self.camera_at = None
         self.started = time.monotonic()
@@ -59,7 +60,9 @@ class Radio:
             for target, name in ((self._wifi, "wifi-monitor"), (self._ble, "ble-scanner"), (self._worker, "radio-log")):
                 threading.Thread(target=target, daemon=True, name=name).start()
 
-    def configure(self, mode, ble, capture, watch, target, channel):
+    def configure(self, mode, ble, capture, watch, target, channel, hop="priority"):
+        if hop not in ("priority", "all"):
+            raise ValueError("Invalid hop plan")
         channel = int(channel)
         target = target.strip().upper()
         if mode not in ("dashboard", "field") or channel not in C.RADIO_CHANNELS or len(watch) > 1024:
@@ -76,14 +79,15 @@ class Radio:
                         "cid": r"[0-9a-fA-F]{4}", "svc": r"[0-9a-fA-F]{4}", "name": r"[^\r\n]{1,63}"}
             if not sep or kind not in patterns or not re.fullmatch(patterns[kind], value):
                 raise ValueError("Invalid watchlist rule")
-        settings.save_section("radio", dict(ble=bool(ble), watch=watch, target=target, channel=channel))
+        settings.save_section("radio", dict(ble=bool(ble), watch=watch, target=target, channel=channel, hop=hop))
         with self.lock:
             self.mode, self.ble, self.capture = mode, bool(ble), bool(capture)
+            self.hop = hop
             self.watch, self.target, self.dashboard_channel = watch, target, channel
 
     def status(self):
         with self.lock:
-            return dict(supported=True, hardware="pi", mode=self.mode, channel=self.channel,
+            return dict(supported=True, hardware="pi", mode=self.mode, channel=self.channel, hop=self.hop,
                         ble=self.ble, bleReady=self.ble_ready, bleScanning=self.ble_scanning,
                         wifiReady=self.wifi_ready, capture=self.capture, packets=self.packets,
                         dropped=self.dropped, logErrors=self.log_errors, freeHeap=0, minFreeHeap=0,
@@ -102,7 +106,7 @@ class Radio:
         with self.lock:
             self.devices.clear()
             self.last_alpr = 0.
-            self.pending_alert = None
+            self.buzzer.alert_queue.clear()
 
     def alert(self):
         with self.lock:
@@ -130,14 +134,14 @@ class Radio:
     def _play_pending(self):
         with self.lock:
             self._update_optical()
-            now = time.monotonic()
-            if self.state["muted"] or not self.buzzer.enabled or (self.pending_alert is not None and now-self.pending_alert > 8):
-                self.pending_alert = None
-            if self.pending_alert is None or self.buzzer.is_playing() or (self.last_alert is not None and now-self.last_alert < 4):
-                return
-            self.buzzer.play_device_alert()
-            self.pending_alert, self.last_alert = None, now
-            self.audible_alerts += 1
+            if self.buzzer.update(self.state["muted"]):
+                self.audible_alerts += 1
+
+    def nearby_alpr(self, when):
+        with self.lock:
+            nearby = [d for d in self.devices.values() if d.get("alpr") and d.get("tier",0)>=2
+                      and abs(when-d.get("matched",0))<=3]
+            return copy.deepcopy(max(nearby, key=lambda d:d["tier"])) if nearby else None
 
     def recent_alpr(self, when=None):
         when = time.monotonic() if when is None else when
@@ -173,7 +177,8 @@ class Radio:
                         now = time.monotonic()
                         wanted = self.dashboard_channel
                         if self.mode == "field":
-                            wanted = C.RADIO_CHANNELS[(C.RADIO_CHANNELS.index(active)+1) % len(C.RADIO_CHANNELS)] if active in C.RADIO_CHANNELS else 1
+                            channels = C.RADIO_CHANNELS if self.hop == "all" else (1,6,11)
+                            wanted = channels[(channels.index(active)+1) % len(channels)] if active in channels else 1
                         if not active or (self.mode == "field" and now-last_hop >= C.RADIO_DWELL_S) or (self.mode == "dashboard" and active != wanted):
                             command(["iw", "dev", interface, "set", "channel", str(wanted)])
                             self.channel, active, last_hop = wanted, wanted, now
@@ -310,7 +315,7 @@ class Radio:
         if row["priority"]:
             fresh = not old.get("alert_tier") or when-old.get("attention_seen", 0) >= 60
             if (fresh or optical_upgrade or row["tier"] > old.get("alert_tier", 0)) and not self.state["muted"] and self.buzzer.enabled:
-                self.pending_alert = when
+                self.buzzer.request_alert(classify(row, protocol, ir, camera))
             d.update(attention_seen=when, alert_tier=row["tier"] if fresh else max(row["tier"], old.get("alert_tier", 0)))
         drone = dict(old.get("drone", {}))
         incoming = packet["drone"] if row["slot"] == 0 else {}
@@ -331,7 +336,7 @@ class Radio:
             self.devices.popitem(last=False)
         if row["alpr"] and row["tier"] >= 2:
             self.last_alpr = when
-        if row["mac"] == self.target and row["slot"] == 0 and not self.state["muted"]:
+        if row["mac"] == self.target and row["slot"] == 0 and not self.state["muted"] and self.buzzer.enabled:
             interval = max(0.15, min(2., (-observation["rssi"]-25)/35))
             if when-self.last_tone >= interval and not self.buzzer.is_playing():
                 self.buzzer.play("Track:d=32,o=6,b=200:c")
@@ -348,12 +353,15 @@ class Radio:
                       gps_valid=valid, lat=fix.get("lat") if valid else None, lon=fix.get("lon") if valid else None,
                       ir_timing_match=ir, camera_pattern=camera, alpr=row["alpr"],
                       assessment=native.assessment(row["alpr"],row["tier"],ir,camera),
+                      detection_method=detection_method(ir,camera,protocol),
                       evidence="ir_radio_nearby" if ir and row["alpr"] and row["tier"] >= 2 else "radio_candidate",
                       drone_id=d["droneId"], drone_lat=d["droneLat"], drone_lon=d["droneLon"],
                       operator_id=drone.get("operatorId", ""), altitude_m=drone.get("altitude"),
                       speed_mps=drone.get("speed"), heading_deg=drone.get("heading"),
                       pilot_lat=drone.get("pilotLat"), pilot_lon=drone.get("pilotLon"), odid_types=drone["types"])
         self._write("log", self._json_bytes(record))
+        if self.logger is not None:
+            self.logger.radio_hit(record)
 
     def _worker(self):
         while not self.stop_event.is_set():

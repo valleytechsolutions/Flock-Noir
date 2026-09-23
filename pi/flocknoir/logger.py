@@ -6,9 +6,11 @@ import threading
 import uuid
 from collections import deque
 import config as C
+from .alerts import detection_method
 
 CSV_HEADER = ("iso_utc,uptime_ms,source,lat,lon,alt_m,sats,hdop,freq_hz,duty,"
-              "confidence,blob_x,blob_y,blob_frac,level_pp,evidence,logged_uptime_ms")
+              "confidence,blob_x,blob_y,blob_frac,level_pp,evidence,logged_uptime_ms,"
+              "detection_method,category,assessment,mac,rssi,radio_method,radio_tier,ir_timing_match,camera_pattern")
 
 
 class HitLogger:
@@ -28,7 +30,7 @@ class HitLogger:
             self.errors += 1
 
     def hit(self, source, freq_hz, duty, conf, bx=0, by=0, blob_frac=0., level_pp=0,
-            observed=None, evidence=None):
+            observed=None, evidence=None, nearby=None):
         now = time.monotonic()
         observed = now if observed is None else observed
         fix = self._gps.fix()
@@ -36,6 +38,10 @@ class HitLogger:
         iso = self._gps.iso_utc()
         lat, lon = (fix.get("lat"), fix.get("lon")) if valid else (None, None)
         evidence = evidence or ("camera_pattern" if source == "camera" else "ir_timing_match")
+        ir, camera = source == "ir", source == "camera"
+        radio = nearby or {}
+        if nearby:
+            evidence = "optical_radio_nearby"
         with self._lock:
             self.recent.appendleft(dict(t=iso, src=source, lat=lat, lon=lon,
                                         hz=freq_hz, duty=duty, conf=conf, evidence=evidence))
@@ -47,11 +53,33 @@ class HitLogger:
                     csv.writer(file).writerow([iso, int(observed*1000), source, lat, lon,
                                                fix.get("alt") if valid else None, fix.get("sats", 0),
                                                fix.get("hdop"), freq_hz, duty, conf, bx, by,
-                                               blob_frac, level_pp, evidence, int(now*1000)])
+                                               blob_frac, level_pp, evidence, int(now*1000),
+                                               detection_method(ir,camera,radio.get("protocol")),
+                                               radio.get("category","Optical pulse candidate"),
+                                               "corroborated_camera_candidate" if nearby else "possible_camera",
+                                               radio.get("mac"),radio.get("rssi"),radio.get("method"),
+                                               radio.get("tier",0),int(ir),int(camera)])
             except OSError:
                 self.errors += 1
         print("[ALERT/%s] %s %.1fHz duty=%.0f%% evidence=%s" %
               (source, iso, freq_hz, duty*100, evidence), flush=True)
+
+    def radio_hit(self, record):
+        # Optical columns stay empty: a radio packet does not measure pulse Hz.
+        row = dict(iso_utc=record["time"],uptime_ms=record["uptime_ms"],source=record["protocol"],
+                   lat=record["lat"],lon=record["lon"],evidence=record["evidence"],
+                   logged_uptime_ms=int(time.monotonic()*1000),detection_method=record["detection_method"],
+                   category=record["category"],assessment=record["assessment"],mac=record["mac"],
+                   rssi=record["rssi"],radio_method=record["method"],radio_tier=record["tier"],
+                   ir_timing_match=int(record["ir_timing_match"]),camera_pattern=int(record["camera_pattern"]))
+        with self._lock:
+            try:
+                if not self.ready:
+                    raise OSError("Log unavailable")
+                with open(self.path,"a",encoding="utf-8",newline="") as file:
+                    csv.DictWriter(file,fieldnames=CSV_HEADER.split(",")).writerow(row)
+            except OSError:
+                self.errors += 1
 
     def recent_list(self):
         with self._lock:

@@ -11,6 +11,7 @@ from flask import (Flask, Response, jsonify, redirect, request, send_file,
 
 import config as C
 from . import __version__
+from .alerts import DEFAULTS, valid
 
 
 def create_app(ctx):
@@ -31,7 +32,7 @@ def create_app(ctx):
         try:
             ctx.radio.configure(request.form.get("mode", ""), request.form.get("ble") == "1",
                                 request.form.get("capture") == "1", request.form.get("watch", ""),
-                                request.form.get("target", ""), request.form.get("channel", "0"))
+                                request.form.get("target", ""), request.form.get("channel", "0"), request.form.get("hop","priority"))
             return jsonify(ok=True)
         except (ValueError, OSError) as exc:
             return jsonify(ok=False, error=str(exc)), 400
@@ -150,7 +151,7 @@ def create_app(ctx):
 
     @app.get("/api/log")
     def get_log():
-        return send_file(log.path, as_attachment=True, download_name="flock_ir_log.csv")
+        return send_file(log.path, as_attachment=True, download_name="flock_detections.csv")
 
     @app.get("/api/wardrive.csv")
     def get_wardrive():
@@ -200,26 +201,46 @@ def create_app(ctx):
 
     @app.post("/api/settings")
     def set_settings():
-        buz.enabled = request.form.get("enabled") == "1"
         try:
-            count = max(0, min(C.BUZZER_MAX_TONES, int(request.form.get("count", "0"))))
+            count = int(request.form.get("count", "0"))
+            if not 1 <= count <= C.BUZZER_MAX_TONES:
+                raise ValueError()
         except ValueError:
-            count = 0
-        buz.tones = [(request.form.get("nm%d" % i, ""), request.form.get("rt%d" % i, ""))
-                     for i in range(count)]
+            return jsonify(error="Invalid tone count"), 400
+        tones = [(request.form.get("nm%d" % i, ""), request.form.get("rt%d" % i, "")) for i in range(count)]
+        if any(len(n)>48 or len(r)>1024 for n,r in tones):
+            return jsonify(error="Tone too long"), 400
+        sounds = {k: request.form.get("sound_"+k, buz.alert_sounds[k]) for k in DEFAULTS}
+        if any(not valid(sound,count) for sound in sounds.values()):
+            return jsonify(error="Invalid alert sound"), 400
+        buz.enabled = request.form.get("enabled") == "1"
+        buz.tones, buz.alert_sounds = tones, sounds
+        if not buz.enabled:
+            buz.alert_queue.clear()
+            buz.stop()
         try:
             buz.alert_idx = int(request.form.get("alertIdx", "0"))
         except ValueError:
             buz.alert_idx = 0
-        if buz.alert_idx >= len(buz.tones):
+        if not 0 <= buz.alert_idx < len(buz.tones):
             buz.alert_idx = 0
-        buz.save()
+        try:
+            buz.save()
+        except OSError:
+            return jsonify(error="Settings storage failed"), 500
         return jsonify(ok=True)
 
     @app.post("/api/test")
     def test_tone():
         r = request.form.get("rtttl", "")
-        if r:
+        if len(r)>1024:
+            return jsonify(error="Tone too long"), 400
+        if "sound" in request.form:
+            try:
+                buz.play_sound(request.form["sound"])
+            except ValueError:
+                return jsonify(error="Invalid sound"), 400
+        elif r:
             buz.play(r)
         elif request.form.get("idx") is not None:
             try:

@@ -105,7 +105,6 @@ textarea{resize:vertical;min-height:52px}
 .switch input:checked+.slider{background:rgba(61,251,160,.18);border-color:var(--green)}
 .switch input:checked+.slider:before{transform:translateX(22px);background:var(--green)}
 .tone{border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:12px;background:#070d12}
-.tone.alert-on{border-color:var(--green);box-shadow:0 0 0 1px rgba(61,251,160,.25)}
 .tone .thead{display:flex;align-items:center;gap:10px;margin-bottom:8px}
 .tone .thead .idx{color:var(--mut);font-size:11px}
 .tone .thead .grow{flex:1}
@@ -151,7 +150,6 @@ footer .spacer{flex:1}
   <div class="brand-txt">
     <span class="co">FLOCK</span>
     <span class="pr">NOIR<span class="cur">_</span></span>
-    <span class="tag">by Valleytech | @valleytechsolutions</span>
   </div>
   <div class="status">
     <div><span class="led" id="led"></span><span id="clock">--:--:--</span></div>
@@ -191,12 +189,13 @@ footer .spacer{flex:1}
 
     <div class="card" id="detectorRadioCard" hidden>
       <div class="row-head"><strong>ALPR / device detections</strong><span style="flex:1"></span>
+        <a class="btn sm" href="/api/log" download>CSV</a>
         <a class="btn sm" href="/api/radio/log" download>EVENT LOG</a></div>
       <div class="hint" id="detectorRadioHealth"></div>
       <div style="overflow-x:auto"><table><thead><tr><th>Device / name</th><th>Evidence</th><th>RSSI</th><th>Age</th></tr></thead>
         <tbody id="detectorRadioRows"></tbody></table></div>
       <div class="hint">Flock-You WiFi/BLE rules, Axon, Meta, Flipper Zero and Pineapple candidates are enabled automatically.
-        New device encounters play Mario when alerts are enabled. Tier 1 is a weak hint; signatures can be shared or spoofed.</div>
+        Device types have separate sounds, configurable in Settings. Tier 1 is a weak hint; signatures can be shared or spoofed.</div>
     </div>
 
     <div class="card">
@@ -205,9 +204,9 @@ footer .spacer{flex:1}
         <span class="dim" id="sigMeta" style="font-size:11px"></span></div>
       <canvas id="wave" width="880" height="90"
         style="width:100%;height:90px;display:block;background:#060c11;border:1px solid var(--line);border-radius:8px"></canvas>
-      <div class="hint" style="margin-top:8px">Live near-IR brightness of the brightest spot in view. A real ALPR pulse
-        shows here as a regular fast flicker. <b>If this stays flat while you aim at a camera, the sensor is not seeing
-        850 nm</b> - almost always the stock IR-cut lens; swap to the IR-filter-removed lens.</div>
+      <div class="hint" style="margin-top:8px">Brightness of the brightest spot in view. A flat scope can mean no visible pulse,
+        poor aim, saturation or missed flashes between frames. The OPT101 measures faster pulses independently;
+        a camera pattern alone cannot identify an ALPR.</div>
     </div>
 
     <div class="card">
@@ -221,6 +220,9 @@ footer .spacer{flex:1}
         <b>D1 (GPIO2)</b> on the XIAO. Pi builds use MCP3008 CH0. See <a href="https://github.com/valleytechsolutions/Flock-Noir/blob/main/HARDWARE.md">HARDWARE.md</a> -
         then flip this on. Status: <b id="irStat">off</b>.</div>
       <div class="hint" id="irHealth"></div>
+      <div class="hint">Timing profile: <b>8–12 Hz</b>, <b>10–30% duty</b>, <b>8–35 ms pulses</b>,
+        four consecutive matching intervals at a target 1,000 samples/sec. Optical and radio evidence within three
+        seconds is logged together; co-occurrence does not prove they are the same device.</div>
     </div>
 
     <div class="card">
@@ -267,11 +269,12 @@ footer .spacer{flex:1}
     <div class="card" id="radioCard" hidden>
       <div class="row-head"><strong>Radio intelligence</strong><span style="flex:1"></span><span id="radioHealth" class="dim"></span></div>
       <div class="hint" id="radioModeHint">Passive WiFi and BLE signatures, drone Remote ID, and IR evidence in one session.
-        <b>Field mode turns off the hotspot</b> and hops channels 1-11. Hold <b>BOOT for 1.5 seconds</b>
+        <b>Field mode turns off the hotspot</b> and hops the selected channels. Hold <b>BOOT for 1.5 seconds</b>
         to restore this dashboard. IR sampling continues in both modes.</div>
       <div class="grid">
         <div class="field"><label for="radioMode">Radio mode</label><select id="radioMode"><option value="dashboard">Dashboard</option><option value="field">Field / channel hopping</option></select></div>
         <div class="field"><label for="radioChannel">Dashboard channel (1-11)</label><input id="radioChannel" type="number" min="1" max="11" value="1"></div>
+        <div class="field"><label for="radioHop">Field scan plan</label><select id="radioHop"><option value="priority">Flock-You priority: 1 / 6 / 11</option><option value="all">All channels: 1–11</option></select></div>
       </div>
       <div style="display:flex;gap:18px;margin-top:12px;flex-wrap:wrap">
         <label><input type="checkbox" id="radioBle" checked> BLE scanning</label>
@@ -323,9 +326,12 @@ footer .spacer{flex:1}
       <div class="row-head"><strong>Buzzer &amp; alert tones</strong>
         <span style="flex:1"></span>
         <label class="switch"><input type="checkbox" id="buzEn"><span class="slider"></span></label></div>
-      <div class="hint" style="margin-top:0">Radio device alerts play the Mario phrase. The selected tone below plays for optical pulse matches. Use a
+      <div class="hint" style="margin-top:0">Choose a sound for each device type or detection method. ALPR candidates use a retro blaster;
+        Axon uses a siren; Ring and Meta use questioning tones. Use a
         <b>passive piezo buzzer</b> on <code>GPIO1 (D0)</code> to GND. Tones are stored on the device.</div>
-
+      <div id="alertSounds"></div>
+      <div class="hint">Custom tone library — select one of these slots in any sound assignment above.
+        Test plays a preview, even when automatic alerts are muted.</div>
       <div id="tones"></div>
 
       <div class="presets" id="presets"></div>
@@ -346,7 +352,7 @@ footer .spacer{flex:1}
 <footer>
   <span class="sig">- Your Pal <b>Kal</b></span>
   <span class="spacer"></span>
-  <span>@valleytechsolutions | Valleytech Custom Solutions | Flock Noir v0.4</span>
+  <span>Flock Noir v0.4.4</span>
 </footer>
 
 <div class="toast" id="toast"></div>
@@ -511,6 +517,7 @@ async function pollRadio(){
     $('#detectorRadioCard').hidden=false;
     if(!radioLoaded){
       $('#radioMode').value=r.mode;$('#radioChannel').value=r.channel;
+      $('#radioHop').value=r.hop||'priority';
       $('#radioBle').checked=r.ble;$('#radioCapture').checked=r.capture;
       $('#radioWatch').value=r.watch;$('#radioTarget').value=r.target;radioLoaded=true;
     }
@@ -536,6 +543,7 @@ async function pollRadio(){
 }
 $('#radioSave').onclick=async()=>{
   const body=new URLSearchParams({mode:$('#radioMode').value,channel:$('#radioChannel').value,
+    hop:$('#radioHop').value,
     ble:$('#radioBle').checked?'1':'0',capture:$('#radioCapture').checked?'1':'0',
     watch:$('#radioWatch').value,target:$('#radioTarget').value.trim()});
   try{
@@ -561,60 +569,78 @@ const PRESETS={
  'Alarm':'Alarm:d=8,o=6,b=180:c,p,c,p,c7,p,c7,p,g,p,g',
  'Chirp':'Chirp:d=32,o=7,b=200:c,p,c,p,c'
 };
-let MAXTONES=5;
-function toneCard(i,name,rtttl,isAlert){
- return '<div class="tone'+(isAlert?' alert-on':'')+'" data-i="'+i+'">'+
-  '<div class="thead"><span class="idx">#'+i+'</span>'+
-   '<input type="text" class="tname grow" value="'+(name||'').replace(/"/g,'&quot;')+'" placeholder="tone name">'+
-   '<label class="radio"><input type="radio" name="alertIdx" value="'+i+'" '+(isAlert?'checked':'')+'>ALERT</label>'+
-   '<button class="btn sm test">Test</button>'+
-   '<button class="btn sm ghost del">x</button></div>'+
-  '<textarea class="trtttl" spellcheck="false">'+(rtttl||'')+'</textarea></div>';
+let MAXTONES=5, soundPresets=[], alertKinds=[];
+function toneCard(i,name,rtttl){
+ return '<div class="tone" data-i="'+i+'"><div class="thead"><span class="idx">#'+i+'</span>'+
+   '<input type="text" maxlength="48" class="tname grow" value="'+escapeHtml(name||'')+'" placeholder="tone name">'+
+   '<button class="btn sm test">Test</button><button class="btn sm ghost del">x</button></div>'+
+   '<textarea class="trtttl" maxlength="1024" spellcheck="false">'+escapeHtml(rtttl||'')+'</textarea></div>';
+}
+function soundChoices(){
+ const slots=$$('#tones .tone').map((t,i)=>({id:'slot:'+i,name:'#'+i+' '+t.querySelector('.tname').value}));
+ return soundPresets.concat(slots);
+}
+function renderAssignments(){
+ const options=soundChoices();
+ $('#alertSounds').innerHTML=alertKinds.map(k=>'<div class="field"><label for="sound_'+k.id+'">'+escapeHtml(k.name)+
+   '</label><div style="display:flex;gap:8px"><select style="flex:1;min-width:0" id="sound_'+k.id+'" data-kind="'+k.id+'">'+
+   options.map(p=>'<option value="'+p.id+'" '+(p.id===k.sound?'selected':'')+'>'+escapeHtml(p.name)+'</option>').join('')+
+   '</select><button class="btn sm sound-test" data-kind="'+k.id+'">Test</button></div></div>').join('');
+ $$('#alertSounds select').forEach(s=>s.onchange=()=>{alertKinds.find(k=>k.id===s.dataset.kind).sound=s.value;});
+ $$('.sound-test').forEach(b=>b.onclick=async()=>{
+   const sound=$('#sound_'+b.dataset.kind).value;
+   const args=new URLSearchParams();
+   if(sound.startsWith('slot:'))args.set('rtttl',$$('#tones .trtttl')[Number(sound.slice(5))].value);
+   else args.set('sound',sound);
+   try{const r=await fetch('/api/test',{method:'POST',body:args});toast(r.ok?'Playing preview':'Preview failed');}
+   catch(e){toast('Preview failed');}
+ });
 }
 async function loadSettings(){
- const s=await (await fetch('/api/settings',{cache:'no-store'})).json();
- MAXTONES=s.max||5;
- $('#buzEn').checked=!!s.enabled;
- $('#tones').innerHTML=s.tones.map((t,i)=>toneCard(i,t.name,t.rtttl,i===s.alertIdx)).join('');
- $('#presets').innerHTML='<span class="dim" style="align-self:center;font-size:11px">presets:</span>'+
-   Object.keys(PRESETS).map(k=>'<button class="chip" data-p="'+k+'">'+k+'</button>').join('');
- bindSettings();
+ try{
+  const response=await fetch('/api/settings',{cache:'no-store'});
+  if(!response.ok)throw new Error();
+  const s=await response.json();MAXTONES=s.max||5;
+  $('#buzEn').checked=!!s.enabled;soundPresets=s.soundPresets||[];alertKinds=s.alertKinds||[];
+  $('#tones').innerHTML=s.tones.map((t,i)=>toneCard(i,t.name,t.rtttl)).join('');
+  $('#presets').innerHTML='<span class="dim" style="align-self:center;font-size:11px">presets:</span>'+
+    Object.keys(PRESETS).map(k=>'<button class="chip" data-p="'+k+'">'+k+'</button>').join('');
+  bindSettings();renderAssignments();
+ }catch(e){toast('Could not load settings');}
 }
 function bindSettings(){
- $$('#tones .test').forEach(b=>b.onclick=e=>{
-   const rt=e.target.closest('.tone').querySelector('.trtttl').value;
-   fetch('/api/test',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
-     body:'rtttl='+encodeURIComponent(rt)});toast('testing...');});
+ $$('#tones .test').forEach(b=>b.onclick=async e=>{
+   const args=new URLSearchParams({rtttl:e.target.closest('.tone').querySelector('.trtttl').value});
+   try{const r=await fetch('/api/test',{method:'POST',body:args});toast(r.ok?'Playing preview':'Preview failed');}
+   catch(e){toast('Preview failed');}
+ });
+ $$('#tones .tname').forEach(n=>n.onchange=renderAssignments);
  $$('#tones .del').forEach(b=>b.onclick=e=>{
-   if($$('#tones .tone').length<=1){toast('keep at least one');return;}
-   e.target.closest('.tone').remove();renumber();});
- $$('#tones .radio input').forEach(r=>r.onchange=()=>{
-   $$('#tones .tone').forEach(t=>t.classList.toggle('alert-on',
-     t.querySelector('.radio input').checked));});
- $$('#presets .chip').forEach(c=>c.onclick=()=>{
-   if($$('#tones .tone').length>=MAXTONES){toast('max '+MAXTONES+' tones');return;}
-   const i=$$('#tones .tone').length;
-   $('#tones').insertAdjacentHTML('beforeend',toneCard(i,c.dataset.p,PRESETS[c.dataset.p],false));
-   bindSettings();});
+   if($$('#tones .tone').length<=1){toast('Keep at least one');return;}
+   const card=e.target.closest('.tone'),removed=Number(card.dataset.i);
+   alertKinds.forEach(k=>{if(k.sound.startsWith('slot:')){
+     const old=Number(k.sound.slice(5));if(old===removed)k.sound='chirp';else if(old>removed)k.sound='slot:'+(old-1);
+   }});
+   card.remove();renumber();renderAssignments();
+ });
+ $$('#presets .chip').forEach(c=>c.onclick=()=>addTone(c.dataset.p,PRESETS[c.dataset.p]));
 }
-function renumber(){$$('#tones .tone').forEach((t,i)=>{t.dataset.i=i;
-  t.querySelector('.idx').textContent='#'+i;t.querySelector('.radio input').value=i;});}
-$('#addTone').onclick=()=>{
-  if($$('#tones .tone').length>=MAXTONES){toast('max '+MAXTONES+' tones');return;}
-  const i=$$('#tones .tone').length;
-  $('#tones').insertAdjacentHTML('beforeend',toneCard(i,'Custom '+i,'Custom:d=8,o=6,b=180:c,e,g',false));
-  bindSettings();};
+function renumber(){$$('#tones .tone').forEach((t,i)=>{t.dataset.i=i;t.querySelector('.idx').textContent='#'+i;});}
+function addTone(name,rtttl){
+ if($$('#tones .tone').length>=MAXTONES){toast('Max '+MAXTONES+' tones');return;}
+ $('#tones').insertAdjacentHTML('beforeend',toneCard($$('#tones .tone').length,name,rtttl));
+ bindSettings();renderAssignments();
+}
+$('#addTone').onclick=()=>addTone('Custom','Custom:d=8,o=6,b=180:c,e,g');
 $('#save').onclick=async()=>{
-  const tones=$$('#tones .tone');
-  const p=new URLSearchParams();
-  p.set('enabled',$('#buzEn').checked?'1':'0');
-  const sel=$('#tones .radio input:checked');
-  p.set('alertIdx',sel?sel.value:'0');
-  p.set('count',tones.length);
-  tones.forEach((t,i)=>{p.set('nm'+i,t.querySelector('.tname').value);
-                        p.set('rt'+i,t.querySelector('.trtttl').value);});
-  await fetch('/api/settings',{method:'POST',
-    headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p.toString()});
-  toast('saved to device');renumber();
+ const tones=$$('#tones .tone'),p=new URLSearchParams();
+ p.set('enabled',$('#buzEn').checked?'1':'0');p.set('alertIdx','0');p.set('count',tones.length);
+ tones.forEach((t,i)=>{p.set('nm'+i,t.querySelector('.tname').value);p.set('rt'+i,t.querySelector('.trtttl').value);});
+ alertKinds.forEach(k=>p.set('sound_'+k.id,k.sound));
+ try{
+  const response=await fetch('/api/settings',{method:'POST',body:p});
+  if(!response.ok)throw new Error();
+  toast('Saved to device');renumber();
+ }catch(e){toast('Save failed — changes are not confirmed');}
 };
 </script></body></html>

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.4 - Device-specific sounds and unified detection CSV
+
+- Remove the web header byline and retain Your Pal Kal as the footer credit.
+- Configurable, persistent alert assignments for ALPR by sensor/radio method,
+  combined evidence, Axon, Ring, Meta, Flipper, Pineapple, drone and watchlist.
+  Preserve custom RTTTL slots; preview presets/custom tones; support Silent.
+- Queue distinct categories without interrupting melodies on repeated packets.
+  Ring OUI candidates now request alerts. Mute/disable also clears pending audio.
+- Add radio rows to the existing detection CSV with source, detection method,
+  rule, tier, assessment, MAC/RSSI and optical corroboration flags. Radio-only
+  rows do not invent optical frequency/duty measurements.
+- Offer Unified Blue's 1/6/11 priority sweep or all 1–11 in Field mode, 350 ms
+  dwell, while camera/OPT101 and BLE continue.
+- Optimize JPEG brightness decoding without reducing VGA preview quality;
+  reject invalid pre-fix GPS dates in XIAO UTC output.
+- Keep Pi Zero 2 W APIs, logging and sound settings aligned with XIAO.
+- Add sound persistence/routing, correlated CSV, Ring, channel-plan and browser
+  regression coverage. No new dependencies or changed GPS wiring/baud.
+
+
 ## 0.4.3 - Device alerts and clearer camera view
 
 - Verify the complete 34-prefix Flock-You OUI set; add serial/DFU hints and

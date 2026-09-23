@@ -2,6 +2,7 @@
 //  Flock Noir  -  buzzer.cpp
 // =============================================================================
 #include "buzzer.h"
+#include "radio.h"
 #include <Preferences.h>
 #include <math.h>
 
@@ -72,7 +73,16 @@ void Buzzer::begin() {
       _rtttl[i] = prefs.getString(("rt" + String(i)).c_str(), "");
     }
     prefs.end();
-    if (_alertIdx >= _count) _alertIdx = 0;
+    if (_alertIdx < 0 || _alertIdx >= _count) _alertIdx = 0;
+  }
+
+  for(int i=0;i<AlertTones::Count;++i)_alertSound[i]=AlertTones::defaults[i];
+  if(prefs.begin("flockbuz",true)) {
+    for(int i=0;i<AlertTones::Count;++i) {
+      String value=prefs.getString(("snd"+String(i)).c_str(),AlertTones::defaults[i]);
+      if(AlertTones::valid(value.c_str(),_count))_alertSound[i]=value;
+    }
+    prefs.end();
   }
 
 #if BUZZER_STARTUP_BEEP
@@ -90,17 +100,22 @@ void Buzzer::setTone(int i, const String &nm, const String &rt) {
   _name[i] = nm; _rtttl[i] = rt;
 }
 
-void Buzzer::save() {
-  prefs.begin("flockbuz", false);
-  prefs.putInt("ver", BUZZER_DEFAULTS_VERSION);
-  prefs.putBool("en", _enabled);
-  prefs.putInt("ai", _alertIdx);
-  prefs.putInt("cnt", _count);
+bool Buzzer::save() {
+  if(!prefs.begin("flockbuz", false))return false;
+  bool ok=prefs.putInt("ver", BUZZER_DEFAULTS_VERSION)>0;
+  ok=(prefs.putBool("en", _enabled)>0) && ok;
+  ok=(prefs.putInt("ai", _alertIdx)>0) && ok;
+  ok=(prefs.putInt("cnt", _count)>0) && ok;
   for (int i = 0; i < _count; i++) {
-    prefs.putString(("nm" + String(i)).c_str(), _name[i]);
-    prefs.putString(("rt" + String(i)).c_str(), _rtttl[i]);
+    ok=(prefs.putString(("nm" + String(i)).c_str(), _name[i])==_name[i].length()) && ok;
+    ok=(prefs.putString(("rt" + String(i)).c_str(), _rtttl[i])==_rtttl[i].length()) && ok;
+  }
+  for(int i=0;i<AlertTones::Count;++i) {
+    if(!AlertTones::valid(_alertSound[i].c_str(),_count))_alertSound[i]=AlertTones::defaults[i];
+    ok=(prefs.putString(("snd"+String(i)).c_str(),_alertSound[i])==_alertSound[i].length()) && ok;
   }
   prefs.end();
+  return ok;
 }
 
 // -----------------------------------------------------------------------------
@@ -123,7 +138,7 @@ void Buzzer::play(const String &rtttl) {
   // split "name:defaults:notes"
   int c1 = rtttl.indexOf(':');
   int c2 = rtttl.indexOf(':', c1 + 1);
-  if (c1 < 0 || c2 < 0) { _playing = false; return; }
+  if (c1 < 0 || c2 < 0) { stop(); return; }
 
   String defs  = rtttl.substring(c1 + 1, c2);
   _notes       = rtttl.substring(c2 + 1);
@@ -157,11 +172,32 @@ void Buzzer::playSlot(int idx) {
 void Buzzer::playAlert() {
   if (_enabled && _count > 0) playSlot(_alertIdx);
 }
-void Buzzer::playDeviceAlert() {if(_enabled)play(DEVICE_ALERT_RTTTL);}
+void Buzzer::playDeviceAlert() {if(_enabled)playKind(AlertTones::Ble);}
+void Buzzer::setAlertSound(int kind,const String &sound) {
+  if(kind>=0 && kind<AlertTones::Count && AlertTones::valid(sound.c_str(),_count))_alertSound[kind]=sound;
+}
+void Buzzer::requestAlert(AlertTones::Kind kind) {
+  if(_enabled && !_muted)_alerts.request(kind,millis());
+}
+void Buzzer::setMuted(bool muted) {
+  if(muted && !_muted)stop();
+  _muted=muted;
+  if(muted)_alerts.clear();
+}
+void Buzzer::playKind(AlertTones::Kind kind) {
+  if(kind>=AlertTones::Count)return;
+  const auto *p=AlertTones::preset(_alertSound[kind].c_str());
+  if(p) {if(*p->rtttl)play(p->rtttl);else stop();return;}
+  playSlot(AlertTones::slot(_alertSound[kind].c_str()));
+}
 
 void Buzzer::stop() { _playing = false; toneHz(0); }
 
 void Buzzer::update() {
+  AlertTones::Kind next;
+  if(_alerts.take(millis(),_muted,_enabled,_playing,next)) {
+    playKind(next);if(_playing)++_alertsPlayed;
+  }
   if (!_playing) return;
   if ((int32_t)(millis() - _noteEnd) < 0) return;      // current note still ringing
 
@@ -203,9 +239,19 @@ String Buzzer::toJson() const {
   j += ",\"tones\":[";
   for (int i = 0; i < _count; i++) {
     if (i) j += ",";
-    String nm = _name[i];  nm.replace("\"", "\\\"");
-    String rt = _rtttl[i]; rt.replace("\"", "\\\"");
-    j += "{\"name\":\"" + nm + "\",\"rtttl\":\"" + rt + "\"}";
+    j += "{\"name\":" + jsonQuote(_name[i]) + ",\"rtttl\":" + jsonQuote(_rtttl[i]) + "}";
+  }
+  j += "],\"alertKinds\":[";
+  for(int i=0;i<AlertTones::Count;++i) {
+    if(i)j+=',';
+    j+="{\"id\":"+jsonQuote(AlertTones::ids[i])+",\"name\":"+jsonQuote(AlertTones::labels[i])+",\"sound\":"+jsonQuote(_alertSound[i])+"}";
+  }
+  j+="],\"soundPresets\":[";
+  bool first=true;
+  for(const auto &p:AlertTones::presets) {
+    if(!first)j+=',';
+    first=false;
+    j+="{\"id\":"+jsonQuote(p.id)+",\"name\":"+jsonQuote(p.name)+",\"rtttl\":"+jsonQuote(p.rtttl)+"}";
   }
   j += "]}";
   return j;

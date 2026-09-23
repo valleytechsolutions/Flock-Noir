@@ -5,10 +5,18 @@ its executable or install Playwright Chromium. Run from the repository root.
 """
 import json
 import os
+import sys
+from urllib.parse import parse_qs
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 root = Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(root/'pi'))
+from flocknoir.alerts import PRESETS, KINDS
+settings = dict(enabled=True,max=5,alertIdx=0,
+    tones=[dict(name='Custom A',rtttl='A:d=8,o=5,b=160:c,e,g'),dict(name='Custom B',rtttl='B:d=8,o=5,b=160:d,f,a')],
+    alertKinds=[dict(id=k,name=n,sound=s) for k,n,s in KINDS],
+    soundPresets=[dict(id=k,name=n,rtttl=r) for k,n,r in PRESETS])
 status = dict(detected=False, irDet=True, irEn=True, irPresent=True, irFreq=10.0,
               irDuty=.2, irPulseMs=20, irSampleHz=1000, irRaw=230, irBaseline=200,
               irNoise=2, irGaps=0, irClipped=False, irAmp=650, radioNearby=True,
@@ -39,6 +47,12 @@ with sync_playwright() as p:
         path = request.request.url.split('flocknoir.test')[-1]
         if request.request.method == 'POST':
             posts.append(request.request.post_data)
+            if path=='/api/settings':
+                fields=parse_qs(request.request.post_data,keep_blank_values=True)
+                for k in settings['alertKinds']:
+                    k['sound']=fields['sound_'+k['id']][0]
+                settings['tones']=[dict(name=fields['nm'+str(i)][0],rtttl=fields['rt'+str(i)][0])
+                                   for i in range(int(fields['count'][0]))]
             return request.fulfill(json={'ok':True})
         if path == '/':
             return request.fulfill(content_type='text/html',body=(root/'web/index.html').read_text())
@@ -50,7 +64,7 @@ with sync_playwright() as p:
                 return request.fulfill(status=503,body='No recent frame')
             return request.fulfill(content_type='image/jpeg',body=(root/'tests/fixtures/jpeg/420.jpg').read_bytes())
         fixtures={'/api/status':status,'/api/radio':radio,'/api/radio/devices':devices,
-                  '/api/radio/files':[], '/api/recs':[]}
+                  '/api/radio/files':[], '/api/recs':[], '/api/settings':settings}
         return request.fulfill(json=fixtures.get(path,{}))
     page.route('**/*',route)
     page.goto('http://flocknoir.test/')
@@ -58,6 +72,8 @@ with sync_playwright() as p:
         page.add_style_tag(content=':root{--mono:"Courier New",monospace}')
     page.wait_for_function("document.querySelector('#bannerTxt').textContent.includes('IR + RADIO NEARBY')")
     assert page.locator('.tab').count() == 4
+    assert 'by Valleytech' not in page.locator('body').inner_text()
+    assert 'Your Pal Kal' in page.locator('footer').inner_text()
     assert page.locator('#rows script').count() == 0
     page.wait_for_function("document.querySelector('#detectorRadioRows').textContent.includes('B4:1E:52')")
     assert page.locator('#detectorRadioRows img').count() == 0
@@ -102,6 +118,28 @@ with sync_playwright() as p:
     assert page.locator('#cam').evaluate('e=>getComputedStyle(e).imageRendering') == 'auto'
     page.locator('#camBtn').click()
     assert page.locator('#cam').get_attribute('src') is None
+    page.locator('[data-tab=settings]').click()
+    page.wait_for_selector('#sound_axon')
+    assert page.locator('#sound_alpr_ir').input_value()=='retro'
+    assert page.locator('#sound_axon').input_value()=='siren'
+    assert page.locator('#sound_meta').input_value()=='confused'
+    page.locator('#sound_axon').select_option('slot:1')
+    page.locator('#sound_meta').select_option('silent')
+    page.locator('.sound-test[data-kind=axon]').click()
+    page.wait_for_function("document.querySelector('#toast').textContent==='Playing preview'")
+    assert any(parse_qs(body).get('rtttl')==['B:d=8,o=5,b=160:d,f,a'] for body in posts)
+    page.locator('#tones .del').first.click()
+    assert page.locator('#sound_axon').input_value()=='slot:0'
+    page.locator('#save').click()
+    page.wait_for_function("document.querySelector('#toast').textContent==='Saved to device'")
+    page.locator('[data-tab=detector]').click()
+    page.locator('[data-tab=settings]').click()
+    page.wait_for_selector('#sound_axon')
+    assert page.locator('#sound_axon').input_value()=='slot:0'
+    assert page.locator('#sound_meta').input_value()=='silent'
+    for width in (1100,390):
+        page.set_viewport_size({'width':width,'height':1000})
+        fits_viewport()
     radio.update(supported=True, hardware='pi', modeHint='Pi: field mode hops the dedicated monitor adapter. The dashboard hotspot stays on.',
                  detail='Set RADIO_MONITOR_IFACE to a dedicated USB WiFi interface')
     page.reload()

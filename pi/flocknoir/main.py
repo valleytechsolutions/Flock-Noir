@@ -33,15 +33,17 @@ def main():
     buz = Buzzer()
     wd = Wardriver(gps)
     ir = IrSensor()
+    radio = None
 
     def on_camera_detect(d, cx, cy):
-        log.hit("camera", d.freqHz, d.dutyCycle, d.confidence, cx, cy, d.blobFrac, d.levelPP)
+        nearby = radio.nearby_alpr(time.monotonic()) if radio else None
+        log.hit("camera", d.freqHz, d.dutyCycle, d.confidence, cx, cy, d.blobFrac, d.levelPP, nearby=nearby)
         if not state["muted"]:
-            buz.play_alert()
+            buz.request_alert("alpr_combined" if nearby else "camera")
 
     cam = Camera(on_camera_detect)
     rec = Recorder(cam)
-    radio = Radio(gps, ir, cam, buz, wd, state)
+    radio = Radio(gps, ir, cam, buz, wd, state, logger=log)
     wd.on_scan = radio.observe_survey
     print("[CAM] %s" % ("ok" if cam.ok else "NOT AVAILABLE (is the camera connected / picamera2 installed?)"),
           flush=True)
@@ -56,10 +58,11 @@ def main():
                 continue
             conf = min(1., r["validCount"]/8.)
             evidence = "ir_radio_nearby" if radio.recent_alpr(r["timestamp"]) else "ir_timing_match"
+            nearby = radio.nearby_alpr(r["timestamp"])
             log.hit("ir", r["freqHz"], r["dutyCycle"], conf, level_pp=r["amp"],
-                    observed=r["timestamp"], evidence=evidence)
+                    observed=r["timestamp"], evidence=evidence, nearby=nearby)
             if not state["muted"]:
-                buz.play_alert()
+                buz.request_alert("alpr_combined" if nearby else "alpr_ir")
     threading.Thread(target=ir_loop, daemon=True).start()
 
     # GPS health heartbeat (serial console), every 5 s

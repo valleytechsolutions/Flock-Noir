@@ -53,7 +53,6 @@ BUZZER_ENABLED  = True
 BUZZER_PIN      = 18           # BCM GPIO18 (hardware-PWM capable). Signal -> GPIO18, other leg -> GND
 BUZZER_STARTUP_TUNE = "Mario:d=4,o=5,b=200:16e6,16e6,32p,8e6,16c6,8e6,8g6,8p,8g,8p,8c6,16p,8g,16p,8e,16p,8a,8b,16a#,8a,16g.,16e6,16g6,8a6,16f6,8g6,8e6,16c6,16d6,8b"
 BUZZER_MAX_TONES = 5
-DEVICE_ALERT_RTTTL = "Mario:d=4,o=5,b=200:16e6,16e6,32p,8e6,16c6,8e6,8g6"
 DEFAULT_TONES = [
     ("Power Rangers", "MMPR:d=16,o=7,b=400:c#8,p,c#8,p,b,c#8,p,e8,p,c#8"),
     ("ALPR Alarm",    "Alarm:d=8,o=6,b=180:c,p,c,p,c7,p,c7,p,g,p,g"),

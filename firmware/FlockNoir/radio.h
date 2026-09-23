@@ -4,6 +4,7 @@
 #include <freertos/queue.h>
 #include "radio_protocol.h"
 #include "radio_alert.h"
+#include "evidence.h"
 
 struct RadioObservation {
   uint32_t ms=0;
@@ -17,13 +18,14 @@ public:
   void begin(bool sdReady);
   void update(bool fix,double lat,double lon,double alt,const char *iso,bool ir,bool camera,bool muted);
   void enqueue(const RadioObservation &observation);
-  bool configure(const String &mode,bool ble,bool capture,const String &watch,const String &target,int channel);
+  bool configure(const String &mode,bool ble,bool capture,const String &watch,const String &target,int channel,const String &hop);
   String json() const;
   String rowsJson() const;
   String alertJson() const;
   uint32_t events() const {return _events;}
   bool field() const { return _field; }
   bool recentAlpr(uint32_t now) const;
+  RadioEvidence nearbyAlpr(uint32_t now) const;
   const String &logPath() const { return _logPath; }
   const String &pcapPath() const { return _pcapPath; }
   const String &blePath() const { return _blePath; }
@@ -40,13 +42,13 @@ private:
     RadioProtocol::Drone drone;
   };
   Device _devices[64];
-  RadioAlertGate _alertGate;
-  uint32_t _events=0,_audibleAlerts=0;
+  uint32_t _events=0,_alertRequests=0;
   uint32_t _irAt=0,_cameraAt=0;
   QueueHandle_t _queue=nullptr;
   std::atomic<uint32_t> _dropped{0},_packets{0};
   bool _sd=false,_field=false,_desiredField=false,_ble=true,_capture=false,_wifiReady=false;
   bool _bleReady=false,_bleScanning=false;
+  bool _allChannels=false;
   uint8_t _channel=1,_dashboardChannel=1;
   uint32_t _switchAt=0,_hopAt=0,_retryAt=0,_trackBeep=0,_bootPressed=0,_lastAlpr=0;
   uint32_t _logErrors=0,_pcapBytes=0,_bleBytes=0;

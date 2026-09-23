@@ -67,7 +67,8 @@ inline const char *vendor(const uint8_t *m) {
 }
 struct Match { const char *category = ""; const char *method = ""; uint8_t tier = 0; bool alpr = false; };
 inline bool attention(const Match &m) {
-  return m.tier && (m.alpr || m.tier>=2 || contains(m.category,"Axon") || contains(m.category,"Flipper"));
+  return m.tier && (m.alpr || m.tier>=2 || contains(m.category,"Axon") ||
+    contains(m.category,"Flipper") || contains(m.category,"Ring"));
 }
 inline int priority(const Match &m) {return !attention(m)?0:(m.alpr && m.tier>=2?20:0)+m.tier;}
 inline const char *assessment(const Match &m,bool ir,bool camera) {

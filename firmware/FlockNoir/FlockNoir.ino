@@ -31,6 +31,7 @@
 #include "recorder.h"
 #include "irsensor.h"
 #include "radio.h"
+#include "gps_time.h"
 #include "web_ui.h"
 #include "logo.h"
 
@@ -80,9 +81,14 @@ int         g_recentCount = 0, g_recentHead = 0;
 //  Time / GPS helpers
 // ---------------------------------------------------------------------------
 bool freshFix() { return gps.location.isValid() && gps.location.age() < GPS_MAX_AGE_MS; }
+bool freshGpsTime() {
+  return gps.date.isValid() && gps.time.isValid() && gps.date.age()<GPS_MAX_AGE_MS &&
+    gps.time.age()<GPS_MAX_AGE_MS && validGpsDate(gps.date.year(),gps.date.month(),gps.date.day()) &&
+    gps.time.hour()<24 && gps.time.minute()<60 && gps.time.second()<60;
+}
 
 void isoUtc(char *out, size_t n) {
-  if (gps.date.isValid() && gps.time.isValid() && gps.time.age() < GPS_MAX_AGE_MS) {
+  if (freshGpsTime()) {
     snprintf(out, n, "%04d-%02d-%02dT%02d:%02d:%02dZ",
              gps.date.year(), gps.date.month(), gps.date.day(),
              gps.time.hour(), gps.time.minute(), gps.time.second());
@@ -93,7 +99,7 @@ void isoUtc(char *out, size_t n) {
 
 // WiGLE "FirstSeen" wants "YYYY-MM-DD HH:MM:SS".
 void wigleTime(char *out, size_t n) {
-  if (gps.date.isValid() && gps.time.isValid() && gps.time.age() < GPS_MAX_AGE_MS) {
+  if (freshGpsTime()) {
     snprintf(out, n, "%04d-%02d-%02d %02d:%02d:%02d",
              gps.date.year(), gps.date.month(), gps.date.day(),
              gps.time.hour(), gps.time.minute(), gps.time.second());
@@ -254,7 +260,7 @@ void logHit(const char *source, float freqHz, float duty, float conf,
   bool fixAtLog = freshFix() && millis()-observedMs <= GPS_MAX_AGE_MS;
   double lat = fixAtLog ? gps.location.lat() : NAN;
   double lon = fixAtLog ? gps.location.lng() : NAN;
-  double alt = gps.altitude.isValid() ? gps.altitude.meters() : NAN;
+  double alt = fixAtLog && gps.altitude.isValid() && gps.altitude.age()<GPS_MAX_AGE_MS ? gps.altitude.meters() : NAN;
   int    sats= gps.satellites.isValid()? gps.satellites.value() : 0;
   double hdop= gps.hdop.isValid() ? gps.hdop.hdop() : NAN;
 
@@ -262,7 +268,9 @@ void logHit(const char *source, float freqHz, float duty, float conf,
   RecentAlert &ra = g_recent[g_recentHead];
   strncpy(ra.t, iso, sizeof(ra.t)); ra.t[sizeof(ra.t)-1]=0;
   strncpy(ra.src, source, sizeof(ra.src)); ra.src[sizeof(ra.src)-1]=0;
-  const char *evidence = !strcmp(source,"ir") ? (radio.recentAlpr(observedMs) ? "ir_radio_nearby" : "ir_timing_match") : "camera_pattern";
+  RadioEvidence nearby=radio.nearbyAlpr(observedMs);
+  bool ir=!strcmp(source,"ir"),camera=!strcmp(source,"camera");
+  const char *evidence = nearby.found ? "optical_radio_nearby" : ir ? "ir_timing_match" : "camera_pattern";
   strlcpy(ra.evidence,evidence,sizeof(ra.evidence));
   ra.lat = lat; ra.lon = lon; ra.hz = freqHz; ra.duty = duty; ra.conf = conf;
   g_recentHead = (g_recentHead + 1) % RECENT_ALERTS;
@@ -273,14 +281,37 @@ void logHit(const char *source, float freqHz, float duty, float conf,
   if (g_sdReady) {
     File f = SD.open(g_csvPath, FILE_APPEND);
     if (f) {
-      if (!f.printf("%s,%llu,%s,%.6f,%.6f,%.1f,%d,%.1f,%.2f,%.3f,%.3f,%u,%u,%.3f,%u,%s,%lu\n",
+      if (!f.printf("%s,%llu,%s,%.6f,%.6f,%.1f,%d,%.1f,%.2f,%.3f,%.3f,%u,%u,%.3f,%u,%s,%lu,%s,%s,%s,%s,%s,%s,%u,%u,%u\n",
                iso, (unsigned long long)observedMs, source, lat, lon, alt, sats, hdop,
-               freqHz, duty, conf, bx, by, blobFrac, levelPP, evidence, (unsigned long)millis())) ++g_logErrors;
+               freqHz, duty, conf, bx, by, blobFrac, levelPP, evidence, (unsigned long)millis(),
+               detectionMethod(ir,camera,nearby.found && nearby.ble,nearby.found && !nearby.ble),
+               nearby.found?nearby.match.category:"Optical pulse candidate",
+               nearby.found?"corroborated_camera_candidate":"possible_camera",nearby.mac,
+               nearby.found?String(nearby.rssi).c_str():"",nearby.match.method,nearby.match.tier,ir,camera)) ++g_logErrors;
       f.close();
     } else ++g_logErrors;
   }
   if(!g_serialReplyActive) Serial.printf("[ALERT/%s] %s  %.6f,%.6f  %.1fHz duty=%.0f%% conf=%.2f\n",
                 source, iso, lat, lon, freqHz, duty*100, conf);
+  if(!g_muted)buzzer.requestAlert(nearby.found?AlertTones::Combined:ir?AlertTones::Ir:AlertTones::Camera);
+}
+
+// Radio and optical detections share one downloadable CSV. Empty optical
+// fields in a radio-only row mean unmeasured, never an invented pulse frequency.
+void logRadioHit(uint32_t observed,const char *iso,bool fix,double lat,double lon,
+    const char *protocol,const char *mac,RadioProtocol::Match match,int rssi,bool ir,bool camera) {
+  if(!g_sdReady)return;
+  File f=SD.open(g_csvPath,FILE_APPEND);
+  if(!f){++g_logErrors;return;}
+  String row=String(iso)+","+String(observed)+","+protocol+","+
+    (fix?String(lat,6):String())+","+(fix?String(lon,6):String());
+  // Columns 6..15: optical measurements and ancillary GPS fields unavailable here.
+  for(int i=0;i<10;++i)row+=',';
+  row+=String(",")+(match.alpr && (ir || camera)?"optical_radio_nearby":"radio_candidate")+","+String(millis())+","+
+    detectionMethod(ir,camera,!strcmp(protocol,"ble"),!strcmp(protocol,"wifi"))+","+match.category+","+
+    RadioProtocol::assessment(match,ir,camera)+","+mac+","+String(rssi)+","+match.method+","+
+    String(match.tier)+","+(ir?"1":"0")+","+(camera?"1":"0")+"\n";
+  if(f.print(row)!=row.length())++g_logErrors;
 }
 
 void logDetection(const DetectionResult &d, uint16_t bx, uint16_t by) {
@@ -408,7 +439,7 @@ void handleLog() {
   if (!g_sdReady) { server.send(404, "text/plain", "no SD card"); return; }
   File f = SD.open(g_csvPath, FILE_READ);
   if (!f) { server.send(404, "text/plain", "no log"); return; }
-  server.sendHeader("Content-Disposition", "attachment; filename=flock_ir_log.csv");
+  server.sendHeader("Content-Disposition", "attachment; filename=flock_detections.csv");
   server.streamFile(f, "text/csv");
   f.close();
 }
@@ -522,22 +553,43 @@ void handleGetSettings() { server.send(200, "application/json", buzzer.toJson())
 
 // POST buzzer/tone settings (application/x-www-form-urlencoded).
 void handleSetSettings() {
-  buzzer.setEnabled(server.arg("enabled") == "1");
   int count = server.arg("count").toInt();
-  if (count < 0) count = 0;
-  if (count > BUZZER_MAX_TONES) count = BUZZER_MAX_TONES;
+  if(count<1 || count>BUZZER_MAX_TONES) {server.send(400,"application/json","{\"error\":\"Invalid tone count\"}");return;}
+  for(int i=0;i<count;++i) {
+    if(server.arg("nm"+String(i)).length()>48 || server.arg("rt"+String(i)).length()>1024) {
+      server.send(400,"application/json","{\"error\":\"Tone too long\"}");return;
+    }
+  }
+  for(int i=0;i<AlertTones::Count;++i) {
+    String key="sound_"+String(AlertTones::ids[i]);
+    if(server.hasArg(key) && !AlertTones::valid(server.arg(key).c_str(),count)) {
+      server.send(400,"application/json","{\"error\":\"Invalid alert sound\"}");return;
+    }
+  }
+  buzzer.setEnabled(server.arg("enabled") == "1");
   buzzer.setCount(count);
   for (int i = 0; i < count; i++) {
     buzzer.setTone(i, server.arg("nm" + String(i)), server.arg("rt" + String(i)));
   }
   buzzer.setAlertIdx(server.arg("alertIdx").toInt());
-  buzzer.save();
-  server.send(200, "application/json", "{\"ok\":true}");
+  for(int i=0;i<AlertTones::Count;++i) {
+    String key="sound_"+String(AlertTones::ids[i]);
+    if(server.hasArg(key))buzzer.setAlertSound(i,server.arg(key));
+  }
+  bool ok=buzzer.save();
+  server.send(ok?200:500, "application/json",ok?"{\"ok\":true}":"{\"error\":\"Settings storage failed\"}");
 }
 
 // POST a one-off RTTTL preview (arg rtttl=...), or idx=N to play a slot.
 void handleTest() {
-  if (server.hasArg("rtttl") && server.arg("rtttl").length())
+  if(server.arg("rtttl").length()>1024) {server.send(400,"text/plain","Tone too long");return;}
+  if(server.hasArg("sound")) {
+    String sound=server.arg("sound");
+    if(!AlertTones::valid(sound.c_str(),buzzer.count())) {server.send(400,"text/plain","Invalid sound");return;}
+    const auto *p=AlertTones::preset(sound.c_str());
+    if(p) {buzzer.stop();if(*p->rtttl)buzzer.play(p->rtttl);}
+    else buzzer.playSlot(AlertTones::slot(sound.c_str()));
+  } else if (server.hasArg("rtttl") && server.arg("rtttl").length())
     buzzer.play(server.arg("rtttl"));
   else if (server.hasArg("idx"))
     buzzer.playSlot(server.arg("idx").toInt());
@@ -612,6 +664,7 @@ void setup() {
 }
 
 void loop() {
+  buzzer.setMuted(g_muted);
   // 0) captive-portal DNS (answers phone probes so the UI opens on connect)
   dnsServer.processNextRequest();
 
@@ -675,7 +728,6 @@ void loop() {
         lastAnalyze=now;auto d=detector.analyze();
         if(d.detected && now-g_lastAlert>=ALERT_HOLDOFF_MS) {
           g_lastAlert=now;logDetection(d,sample.cx,sample.cy);
-          if(!g_muted)buzzer.playAlert();
         }
       }
     } else {
@@ -691,7 +743,6 @@ void loop() {
   while (irSensor.popEvent(event)) {
     float conf = min(1.0f, event.validCount / 8.0f);
     logHit("ir", event.freqHz, event.dutyCycle, conf, 0, 0, 0, event.amp, event.timestampMs);
-    if (!g_muted) buzzer.playAlert();
   }
 
   // 4) advance buzzer tune + drain mic audio if recording (non-blocking)

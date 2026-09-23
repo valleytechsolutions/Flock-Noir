@@ -10,7 +10,7 @@ It scans for the pulsed infrared (IR) illuminators used by many ALPR / Flock-sty
 surveillance cameras, tags what it finds with GPS, logs it to an SD card, and can
 simultaneously act as a Wi-Fi wardriver, all served from a self-hosted web interface.
 
-Valleytech Custom Solutions | @valleytechsolutions | by Your Pal Kal
+By Your Pal Kal
 
 ![status](https://img.shields.io/badge/status-experimental-red)
 ![platform](https://img.shields.io/badge/platform-XIAO%20ESP32--S3%20Sense-blue)
@@ -51,13 +51,18 @@ capture, and drone Remote ID. OPT101 pulse timing runs alongside wardriving;
 events record their source and supporting evidence. The original UI design and
 four tabs remain. See [features, limits and operation](docs/RADIO.md).
 
-**Version 0.4.3** brings Flock-You candidates to the main Detector banner and
-device table, adds the missing serial/DFU hints, Flipper Zero and WiFi Pineapple
-rules, and plays a Mario phrase for new ALPR/Flock, Axon, Meta and tool-device
-encounters. All these rules are on by default, independent of the IR toggle.
-Repeated packets are quiet; events still log their method, tier, GPS validity
-and optical evidence. The XIAO camera now captures 640×480 at about 25 fps for
-analysis, with a sharper sensor-JPEG preview and smooth browser scaling.
+**Version 0.4.4** adds configurable sounds per device type: a retro blaster for
+ALPR candidates, a siren for Axon, questioning tones for Ring/Meta, and distinct
+Flipper, Pineapple and drone sounds. Settings can assign a built-in sound,
+your own RTTTL slot, or silence to each category. The header byline is removed;
+the footer credits **Your Pal Kal**.
+
+IR, camera, BLE and WiFi detections now share the downloadable detection CSV,
+including `detection_method`, signature rule, tier, assessment and GPS validity.
+The 34-prefix Flock-You OUI union and probe/BLE rules remain enabled by default.
+Field mode offers priority channels 1/6/11 (350 ms dwell, as in Unified Blue)
+or a full 1–11 sweep. Camera and OPT101 sampling continue in either scan mode.
+The VGA JPEG preview and original four-tab dashboard are preserved.
 Download the board-specific
 binary and checksum from [Releases](https://github.com/valleytechsolutions/Flock-Noir/releases).
 
@@ -139,7 +144,7 @@ sensor is wired. It builds on research from [Noflock/Flock-IR-Detection](https:/
 ## Hardware targets
 
 Flock Noir has XIAO and Raspberry Pi targets that share the web UI
-(`web/index.html`) and native pulse/radio parsers. Both have 0.4.3 detection,
+(`web/index.html`) and native pulse/radio parsers. Both have 0.4.4 detection,
 watchlists, evidence logs and capture downloads. The **Pi Zero 2 W** uses an
 MCP3008 for OPT101 input and a dedicated monitor-capable USB WiFi adapter for
 passive packet capture; onboard WiFi supports surveys and the hotspot, and
@@ -398,7 +403,7 @@ attribution. See the license file for the full text and the experimental-softwar
 
 <div align="center">
 
-Made by Valleytech Custom Solutions | @valleytechsolutions | Your Pal Kal
+Made by Your Pal Kal
 
 </div>
 

@@ -5,7 +5,7 @@
 // =============================================================================
 #pragma once
 
-#define FLOCK_NOIR_VERSION "0.4.3"
+#define FLOCK_NOIR_VERSION "0.4.4"
 
 // -----------------------------------------------------------------------------
 //  WiFi SoftAP  (device makes its own network -- no internet needed in field)
@@ -59,7 +59,6 @@
 #define BUZZER_LEDC_CHANNEL 5        // keep away from camera's channel 0
 #define BUZZER_MAX_TONES   5         // configurable tone slots
 #define BUZZER_STARTUP_BEEP 1        // 1 = chirp once on boot to prove wiring
-#define DEVICE_ALERT_RTTTL "Mario:d=4,o=5,b=200:16e6,16e6,32p,8e6,16c6,8e6,8g6"
 // Bump this when the built-in default tones change, to re-seed them into NVS on
 // devices that already saved the old set. (Resets tones to defaults.)
 #define BUZZER_DEFAULTS_VERSION 2
@@ -195,7 +194,7 @@ static_assert(IR_SENSOR_PIN != BUZZER_PIN && IR_SENSOR_PIN != GPS_RX_PIN && IR_S
 //  Logging
 // -----------------------------------------------------------------------------
 #define CSV_DIR            "/logs"          // IR-detection CSVs live here
-#define CSV_HEADER  "iso_utc,uptime_ms,source,lat,lon,alt_m,sats,hdop,freq_hz,duty,confidence,blob_x,blob_y,blob_frac,level_pp,evidence,logged_uptime_ms"
+#define CSV_HEADER  "iso_utc,uptime_ms,source,lat,lon,alt_m,sats,hdop,freq_hz,duty,confidence,blob_x,blob_y,blob_frac,level_pp,evidence,logged_uptime_ms,detection_method,category,assessment,mac,rssi,radio_method,radio_tier,ir_timing_match,camera_pattern"
 #define RECENT_ALERTS      12        // how many recent alerts the web UI keeps
 
 // -----------------------------------------------------------------------------

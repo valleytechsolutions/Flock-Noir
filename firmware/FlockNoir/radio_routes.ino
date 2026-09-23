@@ -11,7 +11,7 @@ void registerRadioRoutes() {
   server.on("/api/radio/devices",HTTP_GET,[](){server.send(200,"application/json",radio.rowsJson());});
   server.on("/api/radio",HTTP_POST,[](){
     bool ok=radio.configure(server.arg("mode"),server.arg("ble")=="1",server.arg("capture")=="1",
-      server.arg("watch"),server.arg("target"),server.arg("channel").toInt());
+      server.arg("watch"),server.arg("target"),server.arg("channel").toInt(),server.hasArg("hop")?server.arg("hop"):"priority");
     server.send(ok?200:400,"application/json",ok?"{\"ok\":true}":"{\"ok\":false,\"error\":\"Invalid settings or storage failure\"}");
   });
   server.on("/api/radio/log",[](){radioDownload(radio.logPath(),"application/x-ndjson");});
@@ -70,7 +70,13 @@ void serviceRadioSerial() {
       else if(command=="CMD:VERSION")output="{\"firmware\":\"Flock Noir\",\"version\":\"" FLOCK_NOIR_VERSION "\"}\n";
       else if(command=="CMD:DUMP_LIVE")output=radio.rowsJson()+"\n";
       else if(command=="CMD:CLEAR_LIVE") {radio.clearLive();output="{\"ok\":true}\n";}
-      else if(command=="CMD:TEST_ALERT") {buzzer.playDeviceAlert();output=String("{\"ok\":")+(buzzer.enabled()?"true":"false")+",\"test\":\"Mario device alert\"}\n";}
+      else if(command=="CMD:SETTINGS")output=buzzer.toJson()+"\n";
+      else if(command=="CMD:TEST_ALERT") {buzzer.playDeviceAlert();output=String("{\"ok\":")+(buzzer.enabled()?"true":"false")+",\"test\":\"ALPR BLE alert\"}\n";}
+      else if(command.startsWith("CMD:TEST_SOUND:")) {
+        int k=AlertTones::kind(command.substring(15).c_str());
+        if(k>=0){buzzer.playKind(AlertTones::Kind(k));output="{\"ok\":true,\"test\":\"Sound preview\"}\n";}
+        else output="{\"error\":\"Unknown sound category\"}\n";
+      }
       else if(command=="CMD:FRAME") {
         if(g_previewLength && millis()-g_previewAt<=1000)snapshot=(uint8_t*)ps_malloc(g_previewLength);
         if(snapshot) {

@@ -13,13 +13,3 @@ struct RadioEncounter {
     return notify;
   }
 };
-struct RadioAlertGate {
-  bool pending=false,played=false;
-  uint32_t requested=0,last=0;
-  void request(uint32_t now) {pending=true;requested=now;}
-  bool take(uint32_t now,bool muted,bool enabled,bool busy) {
-    if(muted || !enabled || (pending && now-requested>8000))pending=false;
-    if(!pending || busy || (played && now-last<4000))return false;
-    pending=false;played=true;last=now;return true;
-  }
-};
