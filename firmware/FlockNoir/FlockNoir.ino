@@ -52,13 +52,13 @@ uint8_t *g_previewJpeg=nullptr;
 size_t g_previewLength=0;
 uint32_t g_cameraDecodeErrors=0,g_previewAt=0,g_cameraFrames=0;
 uint16_t g_cameraWidth=0,g_cameraHeight=0;
-struct CameraSample {bool ok;uint16_t level,blob,cx,cy;uint32_t stamp,decodeMs;};
+struct CameraSample {bool ok;uint16_t level,blob,cx,cy;uint32_t stamp,decodeMs,generation;};
 QueueHandle_t g_cameraSamples=nullptr;
 uint8_t *g_analysisJpeg=nullptr,*g_analysisLuma=nullptr;
 JpegLuma g_jpegLuma;
 std::atomic<bool> g_analysisPending{false};
 size_t g_analysisLength=0;
-uint32_t g_analysisStamp=0;
+uint32_t g_analysisStamp=0,g_analysisGeneration=0,g_modeAt=0,g_previewRequestedAt=0;
 uint32_t g_cameraAnalysisMs=0,g_analysisFrames=0,g_cameraAt=0,g_analyzedAt=0;
 float g_analysisFps=0;
 uint32_t g_logErrors = 0;
@@ -216,6 +216,7 @@ void cameraAnalysisTask(void *) {
       CameraSample sample={};
       uint32_t started=millis();
       sample.ok=scanFrame(sample.level,sample.blob,sample.cx,sample.cy);
+      sample.generation=g_analysisGeneration;
       sample.stamp=g_analysisStamp;sample.decodeMs=millis()-started;
       xQueueSend(g_cameraSamples,&sample,0);
       g_analysisPending=false;
@@ -238,7 +239,7 @@ bool initSD() {
   if (!SD.exists(CSV_DIR) && !SD.mkdir(CSV_DIR)) return false;
 
   char name[48];
-  snprintf(name, sizeof(name), "%s/flock_%08lx.csv", CSV_DIR,
+  snprintf(name, sizeof(name), "%s/alpr_%08lx.csv", CSV_DIR,
            (unsigned long)esp_random());
   g_csvPath = name;
 
@@ -248,14 +249,16 @@ bool initSD() {
   f.close();
   g_sdTotalMB = (uint32_t)(SD.totalBytes() >> 20);
   g_sdFreeMB  = (uint32_t)((SD.totalBytes() - SD.usedBytes()) >> 20);
-  Serial.printf("[SD] IR log -> %s  (%lu/%lu MB free)\n",
+  Serial.printf("[SD] ALPR log -> %s  (%lu/%lu MB free)\n",
                 g_csvPath.c_str(), (unsigned long)g_sdFreeMB, (unsigned long)g_sdTotalMB);
   return true;
 }
 
 // Generic hit logger used by BOTH the camera detector and the IR photodiode.
 void logHit(const char *source, float freqHz, float duty, float conf,
-            uint16_t bx, uint16_t by, float blobFrac, uint16_t levelPP, uint32_t observedMs) {
+            uint16_t bx, uint16_t by, float blobFrac, uint16_t levelPP, uint32_t observedMs,
+            float irPulseMs,float irSampleHz) {
+  if(!radio.opticalEnabled())return;
   char iso[24]; isoUtc(iso, sizeof(iso));
   bool fixAtLog = freshFix() && millis()-observedMs <= GPS_MAX_AGE_MS;
   double lat = fixAtLog ? gps.location.lat() : NAN;
@@ -283,13 +286,17 @@ void logHit(const char *source, float freqHz, float duty, float conf,
   if (g_sdReady) {
     File f = SD.open(g_csvPath, FILE_APPEND);
     if (f) {
-      if (!f.printf("%s,%llu,%s,%.6f,%.6f,%.1f,%d,%.1f,%.2f,%.3f,%.3f,%u,%u,%.3f,%u,%s,%lu,%s,%s,%s,%s,%s,%s,%u,%u,%u\n",
+      char row[768];
+      int n=snprintf(row,sizeof(row),"%s,%llu,%s,%.6f,%.6f,%.1f,%d,%.1f,%.2f,%.3f,%.3f,%u,%u,%.3f,%u,%s,%lu,%s,%s,%s,%s,%s,%s,%u,%u,%u,%s,%s,%.1f,%s,%s\n",
                iso, (unsigned long long)observedMs, source, lat, lon, alt, sats, hdop,
                freqHz, duty, conf, bx, by, blobFrac, levelPP, evidence, (unsigned long)millis(),
                fused.method(),
                nearby.found?nearby.match.category:"Optical pulse candidate",
                nearby.found?"corroborated_camera_candidate":"possible_camera",nearby.mac,
-               nearby.found?String(nearby.rssi).c_str():"",nearby.match.method,nearby.match.tier,ir,camera)) ++g_logErrors;
+               nearby.found?String(nearby.rssi).c_str():"",nearby.match.method,nearby.match.tier,ir,camera,
+               isfinite(irPulseMs)?String(irPulseMs,1).c_str():"",isfinite(irSampleHz)?String(irSampleHz,1).c_str():"",
+               g_analysisFps,camera?(detector.last().aliased?"aliased_candidate":"frame_limited_pattern"):"",radio.profile());
+      if(n<=0 || size_t(n)>=sizeof(row) || f.write((const uint8_t*)row,n)!=size_t(n))++g_logErrors;
       f.close();
     } else ++g_logErrors;
   }
@@ -298,10 +305,12 @@ void logHit(const char *source, float freqHz, float duty, float conf,
   if(!g_muted)buzzer.requestAlert(nearby.found?AlertTones::Combined:!strcmp(source,"ir")?AlertTones::Ir:AlertTones::Camera);
 }
 
-// Radio and optical detections share one downloadable CSV. Empty optical
+// ALPR radio and optical candidates share a dedicated ALPR CSV. Other categories stay in JSONL. Empty optical
 // fields in a radio-only row mean unmeasured, never an invented pulse frequency.
 void logRadioHit(uint32_t observed,const char *iso,bool fix,double lat,double lon,
     const char *protocol,const char *mac,RadioProtocol::Match match,int rssi,bool ir,bool camera) {
+  if(!match.alpr || radio.scanMode()==ScanMode::Wardrive || radio.scanMode()==ScanMode::Axon)return;
+  ++g_logged;
   if(!g_sdReady)return;
   File f=SD.open(g_csvPath,FILE_APPEND);
   if(!f){++g_logErrors;return;}
@@ -312,12 +321,16 @@ void logRadioHit(uint32_t observed,const char *iso,bool fix,double lat,double lo
   row+=String(",")+(match.alpr && (ir || camera)?"optical_radio_nearby":"radio_candidate")+","+String(millis())+","+
     (match.alpr?radio.fusion(observed).method():detectionMethod(false,false,!strcmp(protocol,"ble"),!strcmp(protocol,"wifi")))+","+match.category+","+
     RadioProtocol::assessment(match,ir,camera)+","+mac+","+String(rssi)+","+match.method+","+
-    String(match.tier)+","+(ir?"1":"0")+","+(camera?"1":"0")+"\n";
+    String(match.tier)+","+(ir?"1":"0")+","+(camera?"1":"0");
+  IrResult optical=irSensor.result();
+  row+=","+String(ir && optical.detected?String(optical.pulseMs,1):String())+","+
+    (ir && optical.detected?String(optical.sampleHz,1):String())+","+String(g_analysisFps,1)+","+
+    (camera?(detector.last().aliased?"aliased_candidate":"frame_limited_pattern"):"")+","+radio.profile()+"\n";
   if(f.print(row)!=row.length())++g_logErrors;
 }
 
 void logDetection(const DetectionResult &d, uint16_t bx, uint16_t by) {
-  logHit("camera", d.freqHz, d.dutyCycle, d.confidence, bx, by, d.blobFrac, d.levelPP, millis());
+  logHit("camera", d.freqHz, d.dutyCycle, d.confidence, bx, by, d.blobFrac, d.levelPP, millis(), NAN, NAN);
 }
 
 // ---------------------------------------------------------------------------
@@ -356,6 +369,11 @@ String statusJson() {
   j += ",\"buzzer\":"    + String(buzzer.enabled() ? "true":"false");
   j += ",\"wd\":"        + String(wardriver.enabled() ? "true":"false");
   j += ",\"wdScan\":"    + String(wardriver.scanning() ? "true":"false");
+  j += ",\"wdWifiLogged\":"+String(wardriver.wifiLogged())+",\"wdBleLogged\":"+String(wardriver.bleLogged());
+  j += ",\"wdErrors\":"+String(wardriver.errors())+",\"wdNoFix\":"+String(wardriver.noFix());
+  j += ",\"exclusiveModes\":true,\"opticalActive\":"+String(radio.opticalEnabled()?"true":"false");
+  j += ",\"cameraAliased\":"+String(d.aliased?"true":"false");
+  j += ",\"irProfile\":\"experimental_8_12_hz\"";
   j += ",\"wdLogged\":"  + String(wardriver.logged());
   j += ",\"wdTotal\":"   + String(wardriver.lastTotal());
   j += ",\"wdNew\":"     + String(wardriver.newLast());
@@ -386,6 +404,7 @@ String statusJson() {
   // IR photodiode sensor
   IrResult ir = irSensor.result();
   j += ",\"irEn\":"    + String(irSensor.enabled() ? "true":"false");
+  j += ",\"irPaused\":"+String(irSensor.suspended()?"true":"false");
   j += ",\"irDet\":"   + String(ir.detected ? "true":"false");
   j += ",\"irPresent\":"+ String(ir.present ? "true":"false");
   j += ",\"irFreq\":"  + String(ir.freqHz, 1);
@@ -461,6 +480,7 @@ void handleWardriveCsv() {
 
 // Serve the latest background-encoded VGA image without blocking analysis.
 void handleFrame() {
+  g_previewRequestedAt=millis();
   if (!g_previewLength || millis()-g_previewAt>1000) {server.send(503,"text/plain","no recent frame");return;}
   server.sendHeader("Cache-Control", "no-store");
   server.setContentLength(g_previewLength);
@@ -470,6 +490,9 @@ void handleFrame() {
 
 // Start/stop recording. POST action=start|stop, audio=0|1.
 void handleRec() {
+  if(radio.scanMode()==ScanMode::Axon || radio.scanMode()==ScanMode::Wardrive) {
+    server.send(409,"application/json","{\"error\":\"Recording is paused in this scan mode\"}");return;
+  }
   String action = server.arg("action");
   if (action == "start") {
     bool withAudio = server.arg("audio") == "1";
@@ -522,8 +545,8 @@ void handleRecGet() {
 
 // Toggle wardriving on/off (POST en=0/1).
 void handleWardrive() {
-  if (server.hasArg("en")) wardriver.setEnabled(server.arg("en") == "1");
-  server.send(200, "application/json", "{\"ok\":true}");
+  bool ok=server.hasArg("en") && radio.setProfile(server.arg("en")=="1"?"wardrive":"general");
+  server.send(ok?200:400,"application/json",ok?"{\"ok\":true}":"{\"ok\":false}");
 }
 
 // Toggle the IR photodiode detector on/off (POST en=0/1).
@@ -651,6 +674,7 @@ void setup() {
   server.on("/api/status", handleStatus);
   server.on("/api/frame.jpg", handleFrame);
   server.on("/api/log", handleLog);
+  server.on("/api/alpr.csv", handleLog);
   server.on("/api/wardrive.csv", handleWardriveCsv);
   server.on("/api/wardrive", HTTP_POST, handleWardrive);
   server.on("/api/irsensor", HTTP_POST, handleIrSensor);
@@ -668,6 +692,14 @@ void setup() {
   g_fpsWin = millis();
 }
 
+// Called only on the foreground task after the persisted mode changes.
+void applyScanProfile() {
+  irSensor.setSuspended(!radio.opticalEnabled());
+  wardriver.setEnabled(radio.scanMode()==ScanMode::Wardrive);
+  detector.begin(g_scanned);g_analysisFps=0;g_analyzedAt=0;g_modeAt=micros();
+  g_recentHead=g_recentCount=0;g_lastAlert=0;
+  if(radio.scanMode()==ScanMode::Axon || radio.scanMode()==ScanMode::Wardrive)recorder.stop();
+}
 void loop() {
   buzzer.setMuted(g_muted);
   // 0) captive-portal DNS (answers phone probes so the UI opens on connect)
@@ -694,11 +726,14 @@ void loop() {
     bool valid=fb->format==PIXFORMAT_JPEG && fb->width==640 && fb->height==480 && fb->len<=CAM_JPEG_CAPACITY;
     g_cameraWidth=fb->width;g_cameraHeight=fb->height;g_cameraAt=millis();
     if(valid) {
-      memcpy(g_previewJpeg,fb->buf,fb->len);g_previewLength=fb->len;g_previewAt=millis();
+      if(radio.opticalEnabled() || recorder.active() || (g_previewRequestedAt && millis()-g_previewRequestedAt<3000)) {
+        memcpy(g_previewJpeg,fb->buf,fb->len);g_previewLength=fb->len;g_previewAt=millis();
+      }
       recorder.addVideoFrame(fb);
-      if(!g_analysisPending.load()) {
+      if(radio.opticalEnabled() && !g_analysisPending.load()) {
         memcpy(g_analysisJpeg,fb->buf,fb->len);g_analysisLength=fb->len;
         g_analysisStamp=uint32_t(fb->timestamp.tv_sec*1000000ULL+fb->timestamp.tv_usec);
+        g_analysisGeneration=radio.generation();
         g_analysisPending=true;
       }
     } else {
@@ -716,6 +751,7 @@ void loop() {
   }
   CameraSample sample;
   while(g_cameraSamples && xQueueReceive(g_cameraSamples,&sample,0)==pdTRUE) {
+    if(!radio.opticalEnabled() || sample.generation!=radio.generation() || int32_t(sample.stamp-g_modeAt)<0)continue;
     g_cameraAnalysisMs=sample.decodeMs;
     if(sample.ok) {
       ++g_analysisFrames;
@@ -747,7 +783,7 @@ void loop() {
   IrResult event;
   while (irSensor.popEvent(event)) {
     float conf = min(1.0f, event.validCount / 8.0f);
-    logHit("ir", event.freqHz, event.dutyCycle, conf, 0, 0, 0, event.amp, event.timestampMs);
+    logHit("ir", event.freqHz, event.dutyCycle, conf, 0, 0, 0, event.amp, event.timestampMs, event.pulseMs, event.sampleHz);
   }
 
   // 4) advance buzzer tune + drain mic audio if recording (non-blocking)
@@ -756,12 +792,14 @@ void loop() {
 
   // 5) wardriver: async WiFi scan -> WiGLE CSV (separate file), GPS-tagged
   {
-    bool fix   = freshFix();
+    bool fix=freshFix() && freshGpsTime() && gps.hdop.isValid() && gps.hdop.age()<GPS_MAX_AGE_MS &&
+      gps.hdop.hdop()>0 && gps.altitude.isValid() && gps.altitude.age()<GPS_MAX_AGE_MS;
     double lat = fix ? gps.location.lat() : 0.0;
     double lon = fix ? gps.location.lng() : 0.0;
     double alt = gps.altitude.isValid() ? gps.altitude.meters() : 0.0;
     char when[24]; wigleTime(when, sizeof(when));
-    wardriver.update(fix, lat, lon, alt, when);
+    // HDOP is dimensionless; 5 m UERE is an explicit estimate, not measured accuracy.
+    wardriver.update(fix, lat, lon, alt, fix?gps.hdop.hdop()*5.0:NAN, when);
   }
 
   char radioIso[24]; isoUtc(radioIso,sizeof(radioIso));

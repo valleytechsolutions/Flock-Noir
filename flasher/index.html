@@ -23,15 +23,15 @@
 <li>If it is not detected, hold <strong>BOOT</strong>, tap <strong>RESET</strong>, release BOOT and reconnect. After installation, tap RESET if it stays in the bootloader.</li>
 </ol></section>
 <section class="card"><h2>2 / Open Flock Noir</h2><p>Join WiFi <strong>Flock Noir</strong> with password <code>flocknoir</code>, then open <a href="http://192.168.4.1/">192.168.4.1</a>. Your computer may lose internet while connected to the board.</p>
-<p>The <strong>ALPR</strong> tab combines OPT101 timing, camera patterns and Flock WiFi/BLE evidence. <strong>Scanner</strong> shows other recognized device types. Choose ALPR focus or General alerts without stopping evidence collection.</p>
-<p class="muted">Field mode hops WiFi channels and turns off the XIAO hotspot. Hold BOOT for 1.5 seconds to restore the dashboard. Detection keeps running.</p></section>
+<p>The <strong>ALPR</strong> tab combines OPT101 timing, camera patterns and Flock WiFi/BLE evidence. <strong>Scanner</strong> handles general device signatures. <strong>Pig Detector</strong> listens only for Axon BLE and repeats its siren while matches remain fresh. <strong>Wardrive</strong> logs WiFi and BLE to WiGLE CSV with detection alerts and optical analysis paused. Choosing a scan tab starts that mode and stops the previous scanner. Camera and Settings leave the selected mode running.</p>
+<p class="muted">Field scan turns off the hotspot: ALPR/General/Wardrive hop their WiFi channels; Pig Detector turns WiFi off for Axon BLE. Hold BOOT for 1.5 seconds to restore the dashboard. Detection keeps running.</p></section>
 <section class="card"><h2>3 / Wire and enable the OPT101</h2>
 <table><thead><tr><th>OPT101 module</th><th>XIAO Sense</th></tr></thead><tbody>
 <tr><td>VCC / V+</td><td>3V3</td></tr><tr><td>GND</td><td>GND</td></tr><tr><td>OUT / signal</td><td>D1 = GPIO2</td></tr></tbody></table>
 <p>D1 is the second pin down on the left, looking at the component side with USB at the top. These connections are for a breakout module with those labels; check its markings before wiring. Use 3.3 V signal levels.</p>
 <p>Enable OPT101 in the ALPR tab after wiring and check its response to light. First-install default is off. GPS remains on D7/GPIO44 (GPS TX), D6/GPIO43 (optional GPS RX), at 9600 baud.</p>
-<p class="muted">Timing matches and nearby radio signatures indicate candidates. They do not prove a particular camera is present, and a quiet scan cannot rule one out.</p>
-<a href="https://github.com/valleytechsolutions/Flock-Noir/blob/main/docs/RADIO.md">Wiring, scan coverage &amp; detection evidence</a></section>
+<p class="muted">The 8–12 Hz optical profile is experimental, not a universal ALPR rate. At ~25 fps narrow pulses can alias; logs preserve that ambiguity. Timing matches and nearby radio signatures indicate candidates. They do not prove a particular camera is present, and a quiet scan cannot rule one out.</p>
+<a href="https://github.com/valleytechsolutions/Flock-Noir/blob/main/HARDWARE.md">Bill of materials &amp; wiring</a> · <a href="https://github.com/valleytechsolutions/Flock-Noir/blob/main/docs/RADIO.md">Scan modes &amp; detection evidence</a></section>
 <footer>Flock Noir by Your Pal Kal · <a href="https://github.com/valleytechsolutions/Flock-Noir">Source</a><br>
 With thanks to <a href="https://colonelpanic.tech/">Colonel Panic</a> and <a href="https://github.com/colonelpanichacks/oui-spy-unified-blue">OUI Spy Unified Blue</a>.<br>
 Installer powered by <a href="https://esphome.github.io/esp-web-tools/">ESP Web Tools</a> (Apache-2.0).</footer>

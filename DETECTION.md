@@ -1,105 +1,94 @@
-<div align="center">
+# Optical ALPR evidence — XIAO 0.6.0
 
-<img src="docs/logo.png" alt="Flock Noir" width="110">
+Flock Noir measures light changes and combines them with nearby ALPR radio
+candidates. Its current **8–12 Hz** profile is a test configuration. This project
+has no verified basis for claiming that every ALPR, or every Flock camera, emits
+10 Hz / 20 ms flashes. Illumination and exposure depend on camera design and
+configuration; see [Axis's plate-capture guide](https://whitepapers.axis.com/en-us/license-plate-capture).
+A matching waveform is supporting evidence, never a camera identity check.
 
-# How ALPR IR works, and how Flock Noir detects it
+## What the sensors measure
 
-*Research notes and the detection design. This is a research aid, not a definitive
-detector - see the disclaimer in the [README](README.md).*
+**OPT101** integrates a photodiode and amplifier. Powered from a compatible 3.3 V
+breakout, OUT feeds **D1 / GPIO2, ADC1**. The device responds to visible and
+near-infrared light; it cannot measure wavelength. Sampling at ~1000 samples/s
+permits millisecond pulse timing. The firmware removes a slowly changing
+baseline, uses a noise-dependent threshold with hysteresis, and requires:
 
-</div>
+| Measurement | Current reference profile |
+|---|---|
+| Frequency | 8–12 Hz |
+| Duty | 10–30% |
+| Width | 8–35 ms |
+| Consecutive valid intervals | At least 4 |
+| Interval regularity | Within 15% of the preceding valid interval |
+| Sampling gaps | Gaps above 5 ms reset the match |
+| Freshness | Match clears after 300 ms without continuing valid pulses |
 
----
+These constants are in `firmware/FlockNoir/config.h`. Profiles outside these
+bounds can be missed, including continuous illumination. Calibrating a different
+profile requires known-source measurements and new negative controls, not an
+assumption that a new frequency identifies a manufacturer.
 
-## How ALPR cameras use infrared
+**OV2640** supplies spatial brightness evidence. It captures 640×480 JPEG at
+fixed exposure/gain with two PSRAM buffers. A separate task extracts 80×60 block
+brightness, bright-area fraction and centroid, retaining the full-quality JPEG
+for preview. The camera searches for localized repeated brightness changes;
+whole-frame flicker and very weak changes are rejected.
 
-Automatic License Plate Reader (ALPR) cameras, including Flock Safety's, read plates day and
-night. License plates are **retroreflective**: they bounce light straight back at its source.
-So an ALPR camera puts a ring of **infrared (IR) LEDs around its lens** and flashes them; the
-plate lights up brightly for the camera even in the dark, while the flash stays invisible to
-the human eye.
+At the reference ~25 fps, frames are ~40 ms apart. A 20 ms pulse can fall between
+frames. In particular a 10 Hz source may appear to blink at **5 Hz**. The detector
+keeps this as an explicitly **aliased candidate**, halves its confidence score
+and records the **observed** frequency. It does not invent an exact pulse width
+or call the observed rate 10 Hz. The CSV field `camera_timing` distinguishes
+`aliased_candidate` from `frame_limited_pattern`. Even the latter has limited
+timing precision. Use OPT101 for the direct timing measurement.
 
-The key facts that make this detectable:
+## Combined evidence
 
-- **Wavelength: ~850 nm** near-infrared. This is just past visible red. Standard camera
-  sensors can see it, but consumer lenses ship with an **IR-cut filter** that blocks it.
-- **It is pulsed, not continuous.** Reported timing is about **10 Hz, 20 ms on / 80 ms off
-  (~20 % duty cycle)**.
-- **It is motion-triggered.** The illuminator fires a **burst** when a vehicle or pedestrian
-  passes - observers have measured **as many as ~40 pulses** during a single nighttime plate
-  capture, then it goes quiet.
+Only **ALPR mode** runs both optical paths, together with Flock-You WiFi/OUI/probe
+and BLE rules. Each source has its own timestamp; fresh evidence within 3 seconds
+can produce `ir+camera+ble+wifi` or a subset in the ALPR CSV. Correlation works in
+either arrival order. Shared vendor prefixes remain weak hints; a nearby radio
+and a light source are not assumed to be the same object.
 
-That pulsed 850 nm burst is a distinctive, machine-detectable signature. It is what Flock Noir
-looks for.
+Pig Detector, Wardrive and General Scanner pause optical analysis. Their mode
+switches clear stale optical results so a previous signal cannot trigger a new
+mode's buzzer. Camera preview is a separate view, not an implicit mode change.
 
-## Why this is hard, and the sensor hierarchy
+## Bench validation before field interpretation
 
-The catch is **time resolution**. To confirm a 20 ms pulse you want to sample well above
-~100 Hz. Two sensors, two very different capabilities:
+1. Use the [wiring guide](HARDWARE.md). Select **ALPR** and enable OPT101 only
+   after wiring. Cover/uncover the sensor: raw counts and waveform should change.
+   ADC values alone cannot establish a physical connection.
+2. Check the reported OPT101 sample rate (~1 kHz), camera analysis rate (~25 fps),
+   clipping and sample-gap counters under actual lighting. Saturated OPT101
+   output can be below ADC full-scale: a flattened waveform still needs attention.
+3. Aim OPT101 and camera at a separate, measured **10 Hz / 20 ms light source**.
+   OPT101 should report about 10 Hz, 20% duty and 20 ms width after four valid
+   intervals. A 25 fps camera can legitimately report a 5 Hz alias candidate.
+4. Negative controls: cover the sensors, constant light, 50/60 Hz light, 20 Hz
+   pulses, very short / long pulse widths, irregular pulses and saturation.
+   These must not produce an OPT101 timing match. A TV remote checks sensitivity;
+   it is not a valid substitute for the reference waveform.
+5. Inspect ALPR CSV source/method and pulse fields. Add a known radio candidate
+   only when testing correlation; observe that a camera-alone event does not
+   invent a MAC or radio tier. Missing SD/GPS must remain visible.
+6. Switch to Pig Detector and Wardrive. OPT101 sample rate / camera analysis
+   should pause, the prior alert should clear, and ALPR logging should stop.
+   Restore ALPR and verify both optical paths resume without rewiring GPS.
 
-1. **Camera (OV2640) - weak for this.** At the XIAO's measured ~25 fps there are
-   only 2.5 frames per 100 ms cycle, so a 20 ms pulse can fall between frames.
-   A **stock lens blocks much of the near-IR light**,
-   and auto-exposure fights you. The camera can flag "there is ~10 Hz flicker over there" and
-   tell you *where* it is, but it cannot prove the exact pulse shape.
-2. **Analog photodiode - the right tool.** An 850 nm photodiode sampled at ~1 kHz captures the
-   20 ms / 80 ms waveform with much finer timing resolution than the camera.
-   Detection range and performance at speed need measurement on the actual build.
+Synthetic tests cover waveform timing and all phases of the 25 fps alias example.
+Hardware smoke checks measure execution rates and mode isolation. Neither proves
+range, sensitivity or false-positive rates against real ALPRs. Measure and record
+actual target waveforms before making manufacturer-specific claims.
 
-## Flock Noir's two-detector design
+## Field setup
 
-Flock Noir runs both and treats them as independent detectors that share one alert/log stream:
+Use an OV2640 without its IR-cut filter. Fix focus and aim the camera and OPT101
+at the same scene. Optical shade or a characterized filter can reduce ambient
+light; neither identifies the source. Use the built-in fixed exposure/gain as a
+starting point, then evaluate waveform headroom outdoors. Nearby light may come
+from ordinary security cameras, traffic hardware or other emitters.
 
-**Camera path** (`detector.cpp`): grayscale frames at fixed exposure -> per-frame brightness of
-the brightest blob -> time-domain edge/period/duty scoring -> confidence. Good for spatial
-"which object", and it works with no extra hardware. The live **Signal Scope** in the UI shows
-this stream so you can see whether brightness changes. A flat line can also
-mean an inactive illuminator, poor aim, insufficient light or saturation; it
-does not by itself diagnose an IR-cut filter or rule out a camera.
-
-**OPT101 path** (XIAO 0.4): a dedicated ADC1 task targets 1 kHz and reports the
-actual sample rate. It removes a slow ambient baseline, measures rising/falling
-edges, and requires four consecutive cycles in the configured 8-12 Hz profile,
-10-30% duty, 8-35 ms pulse width and no more than 15% period change. Invalid
-cycles, clipping and sample gaps over 5 ms reset the train. Noise-adaptive
-thresholds supplement the fixed threshold floor. These are initial tuning
-values, not an ALPR identification standard.
-
-Radio observations and optical events are independently logged. A nearby radio
-candidate can add temporal evidence; neither an OUI nor pulse timing proves a
-Flock camera. See [the radio/evidence guide](docs/RADIO.md) for operating modes,
-signatures, capture limits and hardware validation. The Pi detector currently
-retains its older implementation.
-
-## Honing it in - practical tuning
-
-- **Remove the IR-cut filter** (or use a de-filtered lens). Nothing else matters as much for
-  the camera path.
-- **Tune against measured sources.** The XIAO OPT101 default is 8-12 Hz; the
-  motion-triggered burst is short; requiring several valid intervals in that band rejects
-  random flicker.
-- **Expect and filter false positives.** Sunlight off a modulated surface, other IR
-  illuminators, and mains-lit scenes can all flicker. The duty check (~20 %), the compactness
-  gate (camera), and the multi-interval requirement (photodiode) cut these down, and the logged
-  confidence lets you filter later. **Always visually confirm a camera.**
-- **What actually separates a strobe from noise.** Simulating the camera path from 37 to 90
-  fps showed that "fraction of intervals near 100 ms" is a weak test at low frame rates (a
-  20 ms pulse sometimes falls between frames, so even a real strobe only scores ~0.6). Two
-  metrics separate cleanly at every frame rate: **duty cycle** (a strobe is short-on, ~0.2;
-  symmetric noise crossing the threshold reads ~0.5) and **interval jitter** (a strobe repeats
-  like a metronome, <= 0.09; noise that lands in the tolerance band is ragged, >= 0.19). Both
-  detectors gate on these. If you retune, keep those two gates.
-
-## References
-
-- Flock IR pulse characteristics and passive photodiode detection:
-  [Noflock/Flock-IR-Detection](https://github.com/Noflock/Flock-IR-Detection),
-  [Unlisted-yea815/Flock-IR-Detection](https://github.com/Unlisted-yea815/Flock-IR-Detection)
-- Teardown / IR illuminator observations:
-  [Dissection of a Flock Safety Camera - CEHRP](https://www.cehrp.org/dissection-of-flock-safety-camera/)
-- Mapping and avoiding ALPR cameras: [DeFlock](https://deflock.me),
-  [State of Surveillance guide](https://stateofsurveillance.org/guides/basic/find-and-avoid-flock-cameras/)
-- Signature-detection inspiration: Colonel Panic's
-  [OUI Spy](https://github.com/colonelpanichacks/oui-spy)
-
-*Not affiliated with Flock Safety. "Flock" is used generically for this category of ALPR camera.*
+[Radio rules and CSV schema](docs/RADIO.md) · [Credits](ATTRIBUTIONS.md)

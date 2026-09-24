@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/logo.png" alt="Valleytech Custom Solutions" width="110">
+<img src="docs/logo.png" alt="Flock Noir" width="110">
 
 # Hardware - Parts, Wiring & Assembly
 
@@ -25,33 +25,39 @@ always visually confirm an actual camera).
 
 ## Bill of materials
 
-### Required
+### Complete XIAO ALPR reference build
 
-| # | Part | Qty | Where to buy | Notes |
-|---|------|-----|--------------|-------|
-| 1 | **Seeed Studio XIAO ESP32-S3 Sense** | 1 | [seeedstudio.com](https://www.seeedstudio.com/XIAO-ESP32S3-Sense-p-5639.html) - [pre-soldered](https://www.seeedstudio.com/Seeed-Studio-XIAO-ESP32S3-Sense-Pre-Soldered-p-6335.html) | The whole brain. Ships with the **OV2640 camera**, **microSD slot**, **PDM mic**, PSRAM, and a **2.4 GHz antenna**. Get the *Sense* version - the plain XIAO S3 has no camera/SD. |
-| 2 | **microSD card** | 1 | any | **Format FAT32.** 4-32 GB is plenty. Holds the detection CSV, wardrive CSV, and recordings. |
-| 3 | **GNSS / GPS module (NMEA, UART)** | 1 | ATGM336H, or **[Seeed L76K GNSS for XIAO](https://www.seeedstudio.com/L76K-GNSS-Module-for-Seeed-Studio-XIAO-p-5864.html)** | The current reference build uses **ATGM336H at 9600 baud** on D7/D6. L76K also defaults to 9600. A Quectel LC29H typically needs `GPS_BAUD 115200` in `config.h`. |
-| 4 | **Passive piezo buzzer** | 1 | **[Seeed Grove Passive Buzzer](https://www.seeedstudio.com/Grove-Passive-Buzzer-p-4525.html)** or any 2-pin passive piezo | *Passive*, not active (see warning above). 3-5 V. |
-| 5 | **2.4 GHz antenna** | 1 | *included with the XIAO ESP32-S3* | Snap onto the IPEX connector - needed for a stable Wi-Fi AP. |
-| 6 | Hook-up wire + soldering iron | - | any | For the GPS and buzzer connections. |
+| Part | Qty | Requirement / purpose |
+|---|---:|---|
+| **Seeed Studio XIAO ESP32-S3 Sense**, Sense expansion board and antenna | 1 | 8 MB flash, PSRAM, camera connector, onboard microSD slot; [Seeed hardware guide](https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/). |
+| **Compatible OV2640 camera without IR-cut filter** | 1 | Your existing OV2640 is the reference camera. Check the actual camera fitted to your board; do not assume every Sense shipment includes OV2640. |
+| **3.3 V-compatible OPT101 analog breakout** | 1 | Required for the high-speed optical path. Integrated photodiode and amplifier; [TI specification](https://www.ti.com/product/OPT101). No separate BPW34 / op-amp needed. |
+| **ATGM336H NMEA GPS module and antenna** | 1 | Keep the existing working setup: TX→D7, optional RX→D6, 9600 baud. Needed for geotagging and WiGLE logging. |
+| **FAT32 microSD**, 4–32 GB | 1 | Required for persistent ALPR, radio and WiGLE logs; also stores recordings. |
+| **Small passive piezo buzzer** | 1 | For distinct tones and Pig Detector siren. Active buzzers cannot play the melodies. |
+| **~100 Ω series resistor** | 1 | Between D0 and the small passive piezo. A high-current speaker needs a driver; do not drive it directly. |
+| **0.1 µF supply bypass capacitor** | 1 if absent on module | Close to OPT101 VCC/GND; a breakout may already include it. |
+| Short hookup wires / solder, USB data cable, stable USB supply or power bank | As needed | Shared ground, reliable power and USB flashing. |
+
+**Pig Detector minimum:** XIAO, antenna and passive buzzer; the Sense expansion,
+camera and OPT101 are not detection inputs in that mode. Add SD for event logs.
+**Wardrive:** XIAO, antenna, GPS and SD. The S3 surveys BLE, not Bluetooth Classic.
+The full ALPR build uses every part above.
 
 ### Optional / recommended
 
-| Part | Where | Why |
-|------|-------|-----|
-| **OV2640 lens with IR-cut filter removed** (or a "no-IR-filter" OV2640 camera) | hobby electronics suppliers | Big boost to IR detection range/reliability. You can also carefully remove the tiny filter from a spare lens. |
-| **LiPo battery (3.7 V)** | [Seeed batteries](https://www.seeedstudio.com/battery-c-262.html) | Portable, cable-free operation; the XIAO has an onboard charger. |
-| **3D-printed case** | your own / community | Protect it for field/car use. |
-| **OPT101 analog module** | [TI specifications](https://www.ti.com/product/OPT101) / electronics suppliers | Dedicated pulse timing input on D1; use a 3.3 V-compatible breakout. |
-
-> **Cost:** the required electronics come to roughly **$25-40** depending on the GPS module.
+A rigid enclosure that keeps the OPT101 and camera aimed together, optical shade
+to prevent saturation, and a suitable near-IR filter can improve measurements.
+OPT101 responds to visible light as well as near-IR; a filter does not identify
+an ALPR. Battery options must match Seeed's documented voltage and polarity.
+A separate, verified 10 Hz / 20 ms IR LED test source is useful for bench testing;
+a TV remote only checks light sensitivity.
 
 ---
 
 ## Pin map
 
-Everything below is fixed by the Sense board **except** the GPS and buzzer, which use free
+Everything below is fixed by the Sense board **except** the GPS, OPT101 and buzzer, which use free
 header pins. None of these overlap, so the camera + SD keep working.
 
 | Signal | GPIO | Header pad | Owner |
@@ -100,10 +106,10 @@ On power-up the board plays a **boot jingle**, which confirms the buzzer works.
 2. **Format the microSD** as FAT32 and insert it into the Sense board's slot.
 3. **Solder the GPS** (4 wires: TX->D7, RX->D6, 3V3, GND).
 4. **Solder the buzzer** (signal->D0, other leg->GND).
-5. *(Optional)* swap in the IR-filter-removed lens; *(optional)* connect a LiPo battery.
+5. Fit the IR-cut-free OV2640. Wire **OPT101 VCC→3V3, GND→GND, OUT→D1/GPIO2**. Use the labeled terminals, not an assumed terminal order.
 6. **Flash** the firmware - prebuilt image or from source, see the
    [README install section](README.md#install-and-flash-xiao-esp32-s3-sense).
-7. Power on: you'll hear the boot jingle, then a Wi-Fi AP appears. Connect and the UI opens.
+7. Power on, join **Flock Noir** / **flocknoir**, open `http://192.168.4.1`, select **ALPR**, then enable OPT101 after checking the wiring.
 
 ---
 
@@ -112,11 +118,10 @@ On power-up the board plays a **boot jingle**, which confirms the buzzer works.
 - **Buzzer:** hear the boot jingle? Passive buzzer wired correctly. In **Settings ->  Test**,
   a tune that *changes pitch* confirms it's passive.
 - **SD:** the UI's microSD tile should read **ready**.
-- **GPS:** take it outside; the **GPS Fix** tile flips to **LOCK** once it sees satellites
+- **GPS:** take it outside; the **GPS Fix** tile flips to **FIX** once it sees satellites
   (cold start can take a few minutes).
 - **IR pipeline:** point a **TV/AC remote** at the lens and press buttons - remotes pulse IR
-  (at a different rate), a quick way to confirm the camera + detector chain is alive. Real
-  detection still requires the correct signature **and your visual confirmation.**
+  (at a different rate), a quick way to check light sensitivity. This does **not** validate ALPR timing or the detector. Use the bench checks below.
 
 ---
 
@@ -159,7 +164,7 @@ Use the package's pin-1 marker and the [TI datasheet](https://www.ti.com/lit/ds/
 ### Bring-up
 
 1. Power on and connect to **Flock Noir**, password **flocknoir**. Open `192.168.4.1`.
-2. Enable **IR photodiode sensor** in Detector. Watch the raw count and waveform
+2. Select **ALPR**, then enable **IR photodiode sensor**. Watch the raw count and waveform
    as you cover/uncover the OPT101. The firmware cannot prove a sensor is
    connected simply by reading an ADC baseline.
 3. Check for headroom in actual outdoor lighting. OPT101 is not rail-to-rail;
@@ -167,8 +172,9 @@ Use the package's pin-1 marker and the [TI datasheet](https://www.ti.com/lit/ds/
    or use an appropriate optical filter if the waveform flattens under bright light.
 4. A TV remote is useful for checking response, but is not a valid ALPR test
    source. Verify a known 10 Hz, 20 ms light pulse and reject other frequencies.
-5. Enable WiGLE and radio scanning, then verify the sampling-rate and drop/gap
-   diagnostics while logging. See [detection and radio validation](docs/RADIO.md).
+5. In **ALPR mode**, verify ~1 kHz OPT101 sampling, camera analysis fps, WiFi/BLE
+   readiness and drop/gap diagnostics while logging. Switch to **Pig Detector** or
+   **Wardrive** and confirm optical sampling pauses; these modes are exclusive. See [detection and radio validation](docs/RADIO.md).
 
 The supplied camera defaults now use lower fixed exposure/gain (150 / 2) for
 an IR-cut-free OV2640. Tune those under real lighting. Point the camera and

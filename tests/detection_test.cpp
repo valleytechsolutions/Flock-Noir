@@ -1,3 +1,6 @@
+#include "scan_mode.h"
+#include "wigle_format.h"
+#include "wifi_security.h"
 #include "fusion.h"
 #include "pulse_detector.h"
 #include "radio_protocol.h"
@@ -15,6 +18,58 @@ static void train(PulseDetector &p,uint32_t &us,int period=100,int width=20,int 
   for(int ms=0;ms<duration;++ms) {us+=1000;p.feed(200+((ms%period)<width?650:0),us);}
 }
 int main() {
+  // Scan modes are exclusive, including Axon on BLE only and zero Wardrive alerts.
+  for(int n=0;n<4;++n) {
+    auto m=ScanMode::Mode(n);ScanMode::Mode parsed=ScanMode::General;
+    assert(ScanMode::parse(ScanMode::name(m),parsed) && parsed==m);
+    assert(ScanMode::optical(m)==(m==ScanMode::Alpr));
+    for(bool ble:{false,true})for(bool alpr:{false,true})for(bool axon:{false,true})
+      assert(ScanMode::accepts(m,ble,alpr,axon)==(m==ScanMode::General ||
+        (m==ScanMode::Alpr && alpr) || (m==ScanMode::Axon && ble && axon)));
+  }
+  ScanMode::Mode invalid=ScanMode::Alpr;assert(!ScanMode::parse("piglet",invalid) && invalid==ScanMode::Alpr);
+  ScanMode::Reminder reminder;
+  assert(reminder.due(100,100,true,10000));
+  assert(!reminder.due(101,101,true,10000));
+  assert(!reminder.due(10100,100,true,10000)); // stale evidence cannot ring
+  assert(!reminder.due(10100,10100,false,10000));
+  assert(reminder.due(10100,10100,true,10000));
+  reminder.last=0xfffff000;reminder.sounded=true;
+  assert(!reminder.due(100,100,true,10000));
+  assert(reminder.due(12000,12000,true,10000));
+  uint8_t surveyMac[]={0xb4,0x1e,0x52,1,2,3};
+  Wigle::Recent<4> recent;
+  recent.remember(surveyMac,false,0xfffff000);
+  assert(recent.seen(surveyMac,false,100) && !recent.seen(surveyMac,true,100));
+  assert(!recent.seen(surveyMac,false,20000));
+  char csv[512];
+  size_t rowBytes=Wigle::row(csv,sizeof(csv),surveyMac,"Cafe, \"quoted\"\nSSID","[ESS]","2026-09-24 12:30:01",6,-60,40,-74,20,7.5,false);
+  assert(rowBytes && strstr(csv,"\"Cafe, \"\"quoted\"\" SSID\""));
+  assert(strstr(csv,",7.5,WIFI\n"));
+  assert(Wigle::row(csv,sizeof(csv),surveyMac,"","[LE]","2026-09-24 12:30:01",37,-60,40,-74,20,7.5,true));
+  assert(strstr(csv,",0,-60,") && strstr(csv,",BLE\n"));
+  assert(!Wigle::row(csv,10,surveyMac,"name","[LE]","2026-09-24 12:30:01",0,-60,40,-74,20,7.5,true));
+  assert(!Wigle::row(csv,sizeof(csv),surveyMac,"","","nofix",0,-60,0,0,0,NAN,true));
+  recent.clear();assert(!recent.seen(surveyMac,false,100));
+  uint8_t secure[58]={};secure[34]=0x10;
+  assert(!strcmp(WifiSecurity::capabilities(secure,36),"[UNKNOWN][ESS]"));
+  const uint8_t rsn[]={48,20,1,0,0,15,172,4,1,0,0,15,172,4,1,0,0,15,172,2,0,0};
+  memcpy(secure+36,rsn,sizeof(rsn));
+  assert(!strcmp(WifiSecurity::capabilities(secure,sizeof(secure)),"[WPA2-PSK][ESS]"));
+  assert(!strcmp(WifiSecurity::capabilities(secure,sizeof(secure)-1),"[UNKNOWN][ESS]"));
+  secure[55]=8;assert(!strcmp(WifiSecurity::capabilities(secure,sizeof(secure)),"[WPA3-SAE][ESS]"));
+  // Actual XIAO rate: phase-swept 10 Hz / 20 ms source sampled at 25 fps.
+  // It appears as 5 Hz; retain an explicit alias candidate, never measured 10 Hz.
+  for(int phase=0;phase<100;++phase) {
+    Detector sampled;sampled.begin(4800);
+    for(int frame=0;frame<200;++frame) {
+      bool on=(frame*40+phase)%100<20;
+      sampled.feed(on?240:20,on?10:0,frame*40000u);
+    }
+    auto result=sampled.analyze();
+    assert(result.detected && result.aliased && result.freqHz>4.9 && result.freqHz<5.1);
+  }
+
   assert(!validGpsDate(2000,0,0));
   assert(validGpsDate(2026,9,23));
   assert(!validGpsDate(2026,2,29));
@@ -59,6 +114,14 @@ int main() {
       if(slot==0)assert(!strcmp(assessment(m,true,false),"corroborated_camera_candidate"));
     }
   }
+  Advert mixed;mixed.company[0]=0x034d;mixed.companies=1;
+  mixed.services[0]=0xfc81;mixed.serviceCount=1;mixed.flockService=true;
+  assert(axonMatch(mixed,mac,false).tier==3);
+  assert(alprBleMatch(mixed,mac,false).alpr);
+  assert(!axonMatch(Advert(),mac,false).tier);
+  uint8_t axonOui[]={0,0x25,0xdf,1,2,3};
+  assert(axonMatch(Advert(),axonOui,true).tier==1 && !axonMatch(Advert(),axonOui,false).tier);
+  mixed.malformed=true;assert(!axonMatch(mixed,mac,true).tier && !alprBleMatch(mixed,mac,true).tier);
   Wifi w;w.valid=true;w.wildcard=true;
   assert(wifiMatch(w,mac,0,true).tier==3);
   w.fingerprint=true;assert(wifiMatch(w,mac,0,true).tier==4);

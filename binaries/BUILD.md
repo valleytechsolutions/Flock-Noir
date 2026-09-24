@@ -1,80 +1,100 @@
-# Flock Noir 0.5.1 - XIAO ESP32-S3 Sense
+# Flock Noir 0.6.0 — XIAO ESP32-S3 Sense
 
-[Open the web flasher](https://valleytechsolutions.github.io/Flock-Noir/)
-using desktop Chrome or Edge and a USB data cable. On an update leave Erase
-device unchecked to retain settings. The installer writes separate parts that
-exclude NVS. The downloadable merged image is for flashing at 0x0 and includes
-NVS padding; it can reset settings. Its SHA-256 is in the adjacent checksum file.
+[Install with the web flasher](https://valleytechsolutions.github.io/Flock-Noir/)
+using desktop Chrome / Edge and a USB data cable. Leave **Erase device unchecked**
+when updating to preserve settings. The installer writes split parts excluding
+NVS. The downloadable merged image writes at **0x0**, includes NVS padding and
+can reset settings. The adjacent checksum file identifies the exact image.
 
-Strong radio evidence now expires independently of newer weak hints, so a weak
-packet cannot hide a recent strong match or keep it alive indefinitely.
+## Changes
 
-This release adds an ALPR focus profile, a dedicated General Scanner tab,
-four-source evidence ages and combined IR/camera/BLE/WiFi CSV methods. Focus
-enables BLE and priority field channels and suppresses non-ALPR sounds while
-retaining all device observations. General alerts restores per-device sounds.
-The existing dark/green visual style, VGA camera preview, GPS wiring and custom
-tone settings are preserved. Switching tabs alone does not change the profile.
+- **Four exclusive modes.** Choosing ALPR, Scanner, Pig Detector or Wardrive starts
+  that scanner and stops the previous one. Camera / Settings preserve the mode.
+  Switching clears pending alerts, live rows, optical history and fusion evidence;
+  generation-stamped queued observations cannot leak across mode changes.
+- **Pig Detector:** Axon-only BLE, no optical analysis / WiFi detection / wardrive.
+  Requests 90/100 ms BLE receive window with dashboard, 100/100 ms with field
+  coverage and WiFi off. Siren repeats every 10 seconds while evidence remains
+  fresh, configurable 5–60 seconds. No reminders after 3 seconds without a match.
+  Axon vendor evidence is a candidate, not confirmed body-camera identity.
+- **ALPR:** OPT101 + OV2640 + dedicated Flock-You OUI/probe/BLE rules. Early packet
+  filtering reduces irrelevant queue traffic. Existing 34-prefix union retained.
+  Camera accounts for frame timing and explicitly flags a 5 Hz observation that
+  could be a 10 Hz narrow-pulse alias. The measured frequency stays unchanged and
+  alias confidence is reduced. Whole-frame flicker / timing gates are tighter.
+- **Separate logs:** 31-column ALPR CSV in `/alpr/alpr_*.csv`, with source methods,
+  pulse width / sampling rates, camera timing ambiguity and scan mode. Non-ALPR
+  devices stay in radio JSONL, now tagged with `scan_mode`.
+- **Wardrive only:** WiFi + BLE WiGLE rows, no device detection alerts or optics.
+  Fresh GPS/time/HDOP/altitude required; estimated accuracy is HDOP × 5 m, not a
+  fixed invented accuracy. Per-address repeat measurements every 15 seconds,
+  bounded security-IE parsing, CSV escaping, write-error / missing-fix counters.
+- Original dark green design, VGA JPEG quality, ATGM336H D7/D6 at 9600 baud,
+  passive buzzer D0 and saved tone/sensor settings preserved. Updated BOM,
+  wiring, installation guide, flasher and Colonel Panic / OUI Spy credits.
 
-Biscuit recognition uses its documented BLE name and optional advertised
-service; the common Arduino example UUID alone never identifies Biscuit.
-Pineapple Pager is covered only as a Pineapple-family AP-name candidate;
-this does not uniquely identify a Pager or detect silent/renamed devices.
-Flock-You's 34-prefix OUI union, probe/BLE rules, Axon, Ring, Meta, Flipper,
-Pineapple and drone signatures remain enabled. Each device class has a sound
-assignment in Settings, including Biscuit.
+## Hardware and operation
 
-Join WiFi **Flock Noir**, password **flocknoir**, then open **http://192.168.4.1**.
-Field mode turns off the XIAO hotspot; hold BOOT for 1.5 seconds to return.
-Select Focus ALPR in the ALPR tab or Use general alerts in Scanner.
-General alerts is the default for compatibility with existing installations.
+**Seeed XIAO ESP32-S3 Sense + IR-cut-free OV2640**, 8 MB flash / OPI PSRAM.
+OPT101: **OUT→D1/GPIO2, VCC→3V3, GND→GND**. Enable it in ALPR after wiring and
+verify its response to light. First-install enable default is off; updates retain
+it. GPS remains ATGM336H at 9600 baud. Passive piezo: D0/GPIO1 through ~100 Ω.
+ESP32-CAM is not supported by this image. **No Raspberry Pi update is included.**
 
-Hardware: Seeed XIAO ESP32-S3 Sense only, 8 MB flash and OPI PSRAM,
-OV2640 without IR-cut filter, Sense SD, ATGM336H GPS on D7/D6 at 9600 baud.
-OPT101 module OUT → D1/GPIO2, VCC → 3V3, GND → GND. Enable it after wiring
-and check the live response to light. First-install default is off; upgrades
-preserve the saved enable setting. ESP32-CAM uses different pins and is not
-supported by this image. Raspberry Pi has a separate release.
+Join **Flock Noir** / **flocknoir**, open **http://192.168.4.1**, choose a scan tab.
+Field scan turns the hotspot off. **Hold BOOT 1.5 seconds** to restore it without
+changing the scan mode. Boot restores the hotspot with the saved mode.
 
-Validation on September 23, 2026:
+## Validation — September 24, 2026
 
-- PlatformIO build passed without compiler warnings/errors; Core 6.1.19,
-  pioarduino 55.03.39, Arduino ESP32 3.3.9 and TinyGPSPlus 1.0.3.
-- Host C++ tests passed: optical pulse rules, all 34 OUI roles, malformed
-  packets, device classifications, source fusion, expiry and timestamp rollover.
-- 29 Pi tests passed, including both fusion arrival orders, combined CSV,
-  profile persistence, sound filtering without stopping logs and Biscuit rules.
-- Browser desktop/mobile checks passed for tabs, ALPR filtering, general
-  filters, profile controls, settings/sound persistence and camera preview.
-- Flasher loaded the real pinned ESP Web Tools 10.4.0 module in Edge.
-  Unsupported-browser and metadata-failure cases keep installation disabled.
-  Staging tests verified image ranges exclude NVS and reject stale/corrupt images.
-  USB flashing through the browser chooser has not been exercised.
-- Connected XIAO flashed via PlatformIO; esptool verified the written hash.
-  A 30-second hardware check measured 25.0–25.1 camera analysis fps at
-  640×480, zero decode errors, ADC at 1000 Hz, SD ready, WiFi/BLE active,
-  zero added queue drops, and valid GPS sentences with zero checksum errors.
-  Startup radio drops were nonzero; no satellite fix was available indoors.
-- ALPR/General profile switching and the new fusion status were verified via
-  USB, restoring the previous General profile. The attached board's saved
-  OPT101 enable setting was on and was preserved; wiring is not verified by
-  ADC activity. Physical Pi hardware was not attached.
+- PlatformIO build passed without compiler warnings/errors: pioarduino 55.03.39,
+  Arduino ESP32 3.3.9, TinyGPSPlus 1.0.3; no additional runtime dependencies.
+- Portable C++ tests passed for mode filtering, reminders / stale evidence,
+  rollover, Axon identifiers and public/random address handling, Flock rules,
+  fusion, malformed packets, pulse width/duty/gaps, phase-swept 25 fps aliases,
+  WiGLE rows/security/deduplication and JPEG decoding.
+- Desktop/mobile browser checks passed for actual mode requests, failed switch
+  behavior, inactive sensor indicators, Pig Detector banner/reminder, coverage,
+  settings/tone persistence and VGA preview recovery. Screenshot uses simulated
+  evidence, not a field observation.
+- Staging verifies checksums, board/version and flash ranges excluding NVS.
+  Browser smoke checks load the real pinned ESP Web Tools 10.4.0 module and test
+  unsupported browsers / failed metadata. Browser USB flashing was not exercised.
+- Connected XIAO flashed via PlatformIO, esptool verified each written image.
+  All four modes were exercised over USB; optics stopped in General, Pig Detector
+  and Wardrive, then resumed in ALPR at approximately 25 fps and 1000 ADC samples/s.
+  GPS messages continued, SD stayed ready and tone/sensor settings were preserved.
+  Axon field coverage disabled WiFi and reported the 100/100 ms BLE window.
+- A 30-second ALPR hardware check showed 640×480, 25.0–25.1 analysis fps, zero
+  camera decode errors, 1000 Hz ADC, zero GPS checksum errors and no new queue
+  drops during the steady check. Startup / mode-transition drops can occur.
 
-Nearby optical and radio signals can come from different devices. The 3-second
-fusion window and 8–12 Hz pulse profile provide supporting evidence, not proof
-of camera identity or absence. OPT101 measures intensity/timing, not wavelength.
-Known optical sources, field accuracy/range and sustained full-load operation
-still need physical validation. A 25 fps camera can miss narrow pulses.
+The attached **OPT101 ADC input read 4095 (clipped)**. Sampling was verified;
+usable optical pulses / physical sensor wiring were not. Clipped inputs are
+rejected. GPS was receiving valid NMEA but had no indoor satellite fix, so no
+real WiGLE field upload or geotagged drive was validated. Real Axon / ALPR targets,
+field range and false-positive rates still require physical testing.
 
-Reproduce:
+The **8–12 Hz, 10–30% duty, 8–35 ms** optical profile is experimental, not a
+manufacturer-confirmed universal ALPR rate. OPT101 measures intensity/timing,
+not wavelength. Nearby optical and radio observations can originate separately.
 
-```bash
+## Reproduce
+
+```sh
 python tools/html2header.py
 python -m platformio run -e xiao_esp32s3_sense
 python tools/package_firmware.py
 python tools/build_flasher.py
 ```
 
-Thanks to [Colonel Panic](https://colonelpanic.tech/) and
-[OUI Spy Unified Blue](https://github.com/colonelpanichacks/oui-spy-unified-blue).
-Full source provenance is in ATTRIBUTIONS.md.
+Opt-in connected-board checks (leave ALPR / dashboard active):
+
+```sh
+python tests/mode_hardware_smoke.py --port COM44
+python tests/hardware_smoke.py --port COM44 --seconds 30 --require-gps-data --require-sd
+```
+
+Thanks to [Colonel Panic](https://colonelpanic.tech/),
+[OUI Spy Unified Blue](https://github.com/colonelpanichacks/oui-spy-unified-blue),
+and the contributors credited in [ATTRIBUTIONS.md](../ATTRIBUTIONS.md).

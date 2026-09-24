@@ -30,10 +30,10 @@
 <text x="57" y="438" font-size="17">PASSIVE PIEZO</text>
 <text x="57" y="466" font-size="14">+ via 100 ohm / - GND</text>
 <path d="M270 450 H370" fill="none" stroke="#ffcb57" stroke-width="3"/>
-<text x="710" y="165" font-size="16">OV2640: Sense ribbon connector</text>
+<text x="710" y="165" font-size="16">OV2640: IR-cut-free / Sense ribbon</text>
 <text x="710" y="192" font-size="16">microSD: onboard slot, FAT32</text>
 <text x="710" y="219" font-size="16">WiFi/BLE: included antenna</text>
 <text x="40" y="562" font-size="16">Power off before wiring. OPT101 OUT must stay within the 3.3 V input limit.</text>
 <text x="40" y="591" font-size="14">Breakout terminal positions vary. Bare OPT101 chip pinout is in HARDWARE.md.</text>
-<text x="40" y="616" font-size="14">GPIO21 belongs to microSD CS: do not wire an OUI Spy NeoPixel to it.</text>
+<text x="40" y="616" font-size="14">ALPR tab: enable OPT101 after wiring. Pig Detector / Wardrive pause optical analysis.</text>
 </g></svg>

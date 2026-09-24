@@ -44,6 +44,13 @@ DetectionResult Detector::analyze() {
   DetectionResult r;
   if (_count < MIN_GOOD_CYCLES * 2) { _last = r; return r; }
 
+  uint32_t span=_buf[idxAt(_head,_count,_count-1)].t_us-_buf[idxAt(_head,_count,0)].t_us;
+  if(!span){_last=r;return r;}
+  r.sampleHz=(_count-1)*1000000.0f/span;
+  const double sampleMs=1000.0/r.sampleHz;
+  // Exposure/frame quantization may erase alternate 20 ms pulses at 25 fps.
+  // Keep the measured 5 Hz alias explicit; do not relabel it as measured 10 Hz.
+  const bool allowAlias=sampleMs>20.0;
   // --- 1. window statistics ---
   uint16_t vmin = 0xFFFF, vmax = 0;
   for (int i = 0; i < _count; i++) {
@@ -86,7 +93,8 @@ DetectionResult Detector::analyze() {
       if (haveRise) {
         double interval_ms = (double)(t - lastRise_us) / 1000.0;
         totalRises++;
-        if (fabs(interval_ms - TARGET_PERIOD_MS) <= PERIOD_TOL_MS) {
+        if (fabs(interval_ms - TARGET_PERIOD_MS) <= fmax(20.0,sampleMs) ||
+            (allowAlias && fabs(interval_ms - 2*TARGET_PERIOD_MS) <= sampleMs)) {
           cyclesInTol++;
           spanSum  += (t - lastRise_us);
           tolSum   += interval_ms;
@@ -158,20 +166,22 @@ DetectionResult Detector::analyze() {
     r.jitter = 1.0f;
   }
 
-  // Decision. Duty and jitter are the gates that actually separate a real strobe
-  // from sensor noise at any frame rate: a strobe is short-on (~20%) and
-  // metronome-regular; noise reads ~50% duty and ragged intervals. periodScore
-  // is kept loose because a 20 ms pulse can fall between frames at ~40 fps.
-  r.detected = (cyclesInTol >= MIN_GOOD_CYCLES) &&
+  // The mean observed frequency must fit the same 8–12 Hz profile, or an
+  // explicitly ambiguous half-rate observation when narrow pulses are undersampled.
+  bool direct=r.freqHz>=IR_MIN_HZ && r.freqHz<=IR_MAX_HZ;
+  r.aliased=!direct && allowAlias && r.freqHz*2>=IR_MIN_HZ && r.freqHz*2<=IR_MAX_HZ;
+  double jitterLimit=fmax(double(JITTER_MAX),sampleMs*r.freqHz/1000.0*0.75);
+  r.detected = (direct || r.aliased) && (r.blobFrac>0) && (cyclesInTol >= MIN_GOOD_CYCLES) &&
                (periodScore >= PERIOD_SCORE_MIN) &&
                (r.dutyCycle >= DUTY_MIN) &&
                (r.dutyCycle <= DUTY_MAX) &&
                (r.blobFrac <= BLOB_MAX_FRACTION) &&
                haveRise &&
                (_buf[idxAt(_head, _count, _count - 1)].t_us - lastRise_us <= 350000) &&
-               (r.jitter <= JITTER_MAX) &&
+               (r.jitter <= jitterLimit) &&
                (r.confidence >= DETECT_CONFIDENCE);
 
+  if(r.aliased)r.confidence*=0.5f; // temporal compatibility is not measured pulse timing
   _last = r;
   return r;
 }

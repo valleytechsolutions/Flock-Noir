@@ -2,13 +2,10 @@
 //  Flock Noir  -  detector.h
 //  Time-domain periodicity + duty-cycle detector for a pulsed IR source.
 //
-//  Design notes:
-//   * We feed one brightness "level" sample per camera frame, each stamped with
-//     micros(). Frame timing jitters, so we work in the TIME domain (edge
-//     intervals) rather than doing an FFT that would assume a fixed rate.
-//   * A detection requires BOTH the right period (~100 ms between rising edges)
-//     AND the right duty (~20% on). That combination is what separates a Flock
-//     IR illuminator from mains flicker, indicators, and steady lights.
+//  Camera timing is quantized by frame exposure and can miss narrow pulses.
+//  A half-rate alias is retained as a weaker candidate, with the OBSERVED
+//  frequency reported. Only the OPT101 can resolve the configured pulse width.
+//  Neither timing nor compact brightness establishes an ALPR's identity.
 // =============================================================================
 #pragma once
 #include <stdint.h>
@@ -23,6 +20,8 @@ struct Sample {
 
 struct DetectionResult {
   bool     detected   = false;
+  bool     aliased = false;
+  float    sampleHz = 0;
   float    freqHz     = 0.0f;
   float    dutyCycle  = 0.0f;
   float    confidence = 0.0f;

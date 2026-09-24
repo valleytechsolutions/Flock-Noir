@@ -1,116 +1,129 @@
-# Radio and IR detection in Flock Noir 0.5.1
+# XIAO 0.6.0 — scan modes, radio and optical evidence
 
-The XIAO ESP32-S3 Sense build combines OPT101 pulse sampling, OV2640 camera
-analysis, passive WiFi observations, BLE advertisements, GPS and SD logging.
-The original visual style remains, with dedicated ALPR and Scanner tabs. Pi 0.5.1 shares the
-native pulse/radio parsers and APIs, with MCP3008 input, legacy BLE HCI scanning,
-and a separate monitor-capable USB WiFi adapter for passive packets. See
-[Pi Zero 2 W setup](../pi/README.md#radio-and-opt101-update-044).
+This guide applies to **Seeed XIAO ESP32-S3 Sense** with OV2640. Raspberry Pi stays
+on its separate 0.5.1 release and [Pi guide](../pi/README.md).
 
-Radio rules run automatically, even with OPT101 off and WiGLE disabled. The
-Detector tab now shows radio-only alerts and an ALPR/device table with event-log
-download; the existing Wardrive controls still choose channel/mode/captures.
-The detections tile includes radio event records as well as optical records.
-These are event counts, not unique cameras. Stronger ALPR/Flock rules take
-priority in the radio banner; a match expires there after eight seconds without
-fresh matching evidence. Logs and the device table retain history.
+## Exclusive modes
 
-The OUI set is the same complete 34-prefix union as Unified Blue's Flock-You;
-regression tests check every prefix as transmitter, receiver and management
-BSSID. OUI-only hits are `possible_camera`, stronger probe/advertisement rules
-are `camera_signature_match`, and a qualifying radio rule plus camera or OPT101
-evidence within three seconds is `corroborated_camera_candidate`. Logs retain
-both optical flags, the rule, tier and fresh GPS position when available. GPS
-locates the observation; it does not increase identity confidence. These
-assessments do not establish that nearby radio and light share a source. No
-match means unknown, never proof that a device is not a camera.
+The scan profile is the single persisted mode. Selecting ALPR, Scanner, Pig
+Detector or Wardrive changes actual firmware work, not just the displayed table.
+Camera and Settings leave the chosen mode active. A failed settings write leaves
+the previous mode running. On a successful change, pending automatic tones, live
+device rows, optical history and fusion evidence are cleared. Packet and camera
+queues carry generation numbers so a previous mode's queued samples cannot be
+processed as new detections. Optical sensor enable and tone assignments persist.
 
-## Device sounds and CSV
-
-Settings provides a persistent sound assignment for each of these categories:
-
-| Candidate / evidence | Default sound |
-|---|---|
-| ALPR OPT101, BLE, WiFi, camera pulse or radio + optical | Original retro blaster phrase |
-| Axon | Alternating two-tone siren |
-| Ring | Question chime |
-| Meta glasses | Confused descending phrase |
-| Flipper Zero | Digital warble |
-| WiFi Pineapple | Network warning |
-| Drone | Radar phrase |
-| Other watchlist | Triple chirp |
-
-Each ALPR method has its own assignment, including combined evidence. Any
-category can use any preset, a saved custom RTTTL slot, or Silent. Existing
-custom tones survive the upgrade. Deleting an assigned slot switches that
-assignment to Triple chirp; later slot references shift with their tones.
-Test previews the chosen sound before saving. A passive piezo is required;
-a fixed-pitch active buzzer cannot reproduce melodies.
-
-New encounters, stronger signatures, optical corroboration and reappearance
-after 60 seconds can request a sound. A bounded queue retains one pending sound
-per category, prioritizes ALPR, waits for the current melody to finish and
-expires requests after 30 seconds. Each category has a four-second cooldown.
-Mute/buzzer-off clears pending sounds; detection and logging continue. Weak
-OUI/shared-service hints remain candidates even if they make a sound.
-
-The Detector CSV download (`/api/log`, `/logs/flock_*.csv`) now contains optical
-**and radio** rows. `source` identifies the originating path; `detection_method`
-is `ir`, `camera`, `ble`, `wifi`, or a combination such as `ir+ble`.
-`radio_method` preserves the exact rule (`penguin_serial`, `wildcard_ie`,
-`oui_addr2`, etc.). `category`, `assessment`, `radio_tier`, MAC, RSSI and the
-optical evidence flags are also included. Radio-only rows leave frequency and
-duty empty because a packet does not measure a flash. No GPS fix means no valid
-position. SD must be mounted for XIAO CSV persistence; storage errors appear in
-the health panel. Existing CSV files are left untouched; each boot starts a new
-session. Radio JSONL and optional packet captures are still available.
-
-Corroboration works in either arrival order: an optical row can refer to a
-recent qualifying radio match; a subsequent radio observation can log an
-optical upgrade even inside the normal duplicate window. This does not merge
-MACs, prove a shared physical source or label an IR timing match as confirmed
-ALPR identity.
-
-`CMD:SETTINGS` reads sound assignments over USB. `CMD:TEST_ALERT` previews the
-ALPR BLE assignment; `CMD:TEST_SOUND:axon` (or another category ID) previews
-that assignment without logging a detection or modifying settings.
-
-## XIAO operating modes
-
-| Mode | WiFi | BLE | IR / camera | Dashboard |
+| Mode / API value | Optical analysis | WiFi | BLE | Automatic outputs |
 |---|---|---|---|---|
-| Dashboard | Promiscuous reception on the AP channel; passive WiGLE surveys when no client is connected | Passive legacy advertisements, approximately 10% scan window | Both enabled paths continue | Available |
-| Field | Priority 1/6/11 or all 1–11, 350 ms per channel; WiGLE logs observed beacons when enabled | Same passive scan | Both enabled paths continue | Hotspot off |
+| ALPR / `alpr` | OPT101 + camera | ALPR/Flock OUI and probe rules | ALPR/Flock rules | ALPR tones, ALPR CSV, radio events |
+| Scanner / `general` | Paused | General signatures, watchlist, Remote ID, optional captures | General signatures, watchlist, Remote ID, optional captures | Per-device tones and radio events; ALPR radio candidates also enter ALPR CSV |
+| Pig Detector / `axon` | Paused | Detection off | Axon-only matching | Fresh-evidence siren and Axon radio events |
+| Wardrive / `wardrive` | Paused | Passive AP surveys / beacons | Advertisements, including unknown vendors | WiGLE CSV only; no automatic detection alerts |
 
-Enable the OPT101 toggle in Detector and WiGLE toggle in Wardrive, then apply
-Field mode in Wardrive. Hold the onboard BOOT button for 1.5 seconds to return to
-the dashboard. Reboot always returns to the dashboard. Capture and field mode
-are deliberately not persisted; BLE preference, watchlist, target, dashboard
-channel and field scan plan are saved. A mode change takes effect about 1.2 seconds after Apply.
+OPT101's saved enable switch is independent of the runtime pause. Camera DMA can
+continue acquiring frames, but optical analysis stops outside ALPR. Requested
+preview remains available; it is not a scanner. Recording and microphone capture
+are stopped and blocked in Pig Detector and Wardrive.
 
-There is one shared 2.4 GHz radio. WiFi channel hopping and BLE scanning divide
-airtime; these are not simultaneous receivers on every channel. The hotspot
-transmits beacons in Dashboard mode, so that mode is not radio-silent. Field mode
-does not start an AP, associate with networks, send WiFi probes or BLE scan
-requests. It receives management/data frames and BLE advertisements. No 5/6 GHz,
-cellular reception, encrypted payload decryption, or connected BLE traffic.
+## Pig Detector
 
-On Pi, field mode hops the dedicated USB monitor adapter and leaves the
-onboard hotspot running. Dashboard mode fixes the monitor channel. Without a
-monitor adapter, onboard WiFi surveys still report OUI/SSID candidates when
-wardriving is enabled and no hotspot clients are present. Survey evidence is
-explicitly labeled and is never synthesized into captured packets. Pi radio
-queues hold 256 observations and its live table holds at most 128 devices.
+Passive BLE discovery runs indefinitely with duplicate advertisements enabled.
+Only Axon candidate advertisements enter its queue. It does not scan WiFi,
+classify other device categories, run target-tracking tones or populate ALPR CSV.
 
-## Features and provenance
+Requested BLE timing is **90/100 ms** window/interval with the hotspot, or
+**100/100 ms** with field coverage and WiFi switched off. These are configured
+windows, not a claim of lossless reception. BLE advertisements may be missed
+because of interference, address rotation, antenna placement or device state.
+Normal ALPR, General and Wardrive discovery requests **100/200 ms** to share the
+radio with WiFi. Scan faults retry on a nonblocking timer.
 
-Inspired by [Colonel Panic's Unified Blue](https://github.com/colonelpanichacks/oui-spy-unified-blue)
-at commit `0d67d145a5444b70a53061bb4ab00f0765cad245`, inspected September 22, 2026.
-Flock Noir implements its own parsers, scheduler, UI integration and storage.
-The inspected Unified Blue repository has no top-level license granting reuse
-of the complete application. Its application source is not vendored here.
-Public protocol identifiers and research findings are credited below and in
-[ATTRIBUTIONS.md](../ATTRIBUTIONS.md).
+Axon signatures use SIG company **034D**, member service **FC81**, Axon names and
+public-address OUI **00:25:DF**. Company+service in one advertisement is stronger
+than either alone. Shared vendor identifiers do not establish a body-camera
+model. The banner therefore reads **POSSIBLE AXON BODY CAMERA NEARBY**. Absence of
+advertisements is not absence of a camera: [Axon's own Body 4 guide](https://www.axon.com/help/axon-body-4/cameras-and-sensors/body/body-nearby-activation.htm)
+describes conditional and time-limited beacons.
+
+A fresh match requests the **Axon** sound. One global reminder timer prevents
+advertisement floods or multiple MACs from flooding the buzzer. Default repeat:
+**10 seconds**, editable **5–60 seconds** in this tab. No reminder occurs if the
+latest supporting advertisement is more than **3 seconds** old. Mute, disabled
+buzzer and a silent Axon sound are respected. Settings can select another sound
+or a custom RTTTL slot.
+
+## Radio coverage and recovery
+
+**Dashboard**: hotspot on `192.168.4.1`, default channel 1. Packet reception stays
+on its channel while clients are connected. Wardrive can perform passive surveys
+when no hotspot client is present. **Field**: hotspot off; ALPR priority 1/6/11,
+Wardrive 1–11, General configured plan; dwell 350 ms. Pig Detector instead turns
+WiFi off entirely. BLE continues in all four modes. WiFi and Bluetooth cannot
+receive all channels at once on this shared radio.
+
+Hold **BOOT 1.5 seconds** to restore the dashboard. Restarting also restores the
+hotspot while preserving the selected scan mode. Changing coverage never changes
+the scan profile. XIAO has no Bluetooth Classic, 5/6 GHz WiFi or sub-GHz receiver.
+
+## ALPR focus and evidence fusion
+
+OPT101 (~1 kHz), camera (~25 fps), BLE and WiFi share a bounded 3-second evidence
+window. Matches arriving in either order can add support. Radio evidence is
+tracked by strength independently: a weak vendor hint cannot hide or refresh a
+stronger old signature. MAC identities remain separate in the radio log; proximity
+of optical and radio observations does not prove a shared emitter.
+
+`no_recent_evidence` means no current match, not no camera. Optical evidence alone
+is `possible_camera`; sufficiently specific nearby radio evidence adds
+`corroborated_camera_candidate`. The four-source case reports
+`multiple_sources_nearby`. These are assessments, not calibrated probabilities.
+
+**Frequency:** 8–12 Hz / 10–30% duty / 8–35 ms is an experimental reference profile,
+not a manufacturer-verified universal ALPR rate. OPT101 validates four consecutive
+intervals, regularity, adaptive amplitude threshold, clipping and sampling gaps.
+Camera duty and pulse timing are exposure/frame limited. A narrow 10 Hz source
+sampled at 25 fps can appear as 5 Hz; camera aliases are retained as weaker
+candidates with observed frequency and `camera_timing=aliased_candidate`. They do
+not count as an OPT101 timing measurement. [Detection and bench validation](../DETECTION.md).
+
+## Separate files and data quality
+
+| Data | File | Contents |
+|---|---|---|
+| ALPR evidence | `/alpr/alpr_*.csv` | 31 columns; optical / ALPR radio only |
+| Survey | `/wardrive/wigle_*.csv` | WiGLE 1.4, `WIFI` and `BLE` types |
+| Radio events | `/radio/events_*.jsonl` | Category, rule, tier, MAC, protocol, RSSI, uptime, GPS, mode and evidence |
+| General packet capture | `/radio/wifi_*.pcap`, `/radio/ble_*.jsonl` | Optional raw observations, 16 MiB cap per capture |
+
+`GET /api/alpr.csv` and the legacy `/api/log` return the ALPR file. Its
+`detection_method` is `ir`, `camera`, `ble`, `wifi` or a combined value such as
+`ir+camera+ble+wifi`. `source` is the event that caused the row. Pulse fields on
+radio-only events remain blank; they are not guessed from a MAC. Additional
+columns retain OPT101 pulse width / sample rate, camera sample rate / timing
+ambiguity and scan mode. Optical evidence can log without GPS, with an uptime
+stamp and unavailable coordinates. Non-ALPR devices never enter the ALPR CSV.
+
+Wardrive deliberately does not classify or alert. It observes WiFi APs and BLE
+advertisers, including unknown vendors. Rows require a current GPS fix, UTC,
+altitude and HDOP. `AccuracyMeters` is **HDOP × 5 m estimated accuracy**, recorded
+in the pre-header; it is not measured receiver uncertainty. BLE channel is **0
+(unknown)** because legacy NimBLE reports do not identify the advertising channel.
+WiFi security uses parsed RSN/WPA evidence; a privacy bit alone stays UNKNOWN.
+
+SSID / names are quoted, quotes doubled, and line breaks replaced by spaces for
+WiGLE import. Repeated protocol/address observations log at most once per 15
+seconds, allowing measurements at new locations. Failed writes and missing GPS
+are not remembered as successfully logged. The dashboard exposes WiFi/BLE row
+counts, SD errors and observations skipped for missing GPS. WiGLE upload itself
+has not been exercised with a real field session.
+
+## Protocol provenance and retained General features
+
+Inspired by [Colonel Panic](https://colonelpanic.tech/) and
+[OUI Spy Unified Blue](https://github.com/colonelpanichacks/oui-spy-unified-blue).
+Please support his work. Flock Noir independently implements the parsers,
+scheduler, storage and UI; upstream application code/UI is not vendored.
+[Complete attributions](../ATTRIBUTIONS.md).
 
 | Unified Blue area | Flock Noir implementation |
 |---|---|
@@ -170,205 +183,25 @@ Unified Blue's Flask dashboard, boot selector or session CRC format.
 Tiers describe the matched rule, not a calibrated probability of identification.
 An unrelated transmitter can satisfy a vendor-prefix or probe fingerprint rule.
 
-### Watchlist syntax
 
-One rule per line, up to 1024 bytes total. Names are case-insensitive substrings;
-hex values have no `0x` prefix. These supplement the built-in candidate rules.
+Biscuit uses advertised name `Biscuit`; the additional documented service UUID
+adds support only alongside the name. Its service alone is shared with a generic
+Arduino BLE example. Pineapple Pager has no verified unique model fingerprint;
+recognizable Pineapple-family network names produce family candidates only.
 
-```text
-oui:B4:1E:52
-mac:AA:BB:CC:DD:EE:FF
-name:Penguin
-cid:034D
-svc:FC81
-```
+## Controls and diagnostics
 
-## IR evidence
+- `POST /api/profile`: `profile=alpr|general|axon|wardrive`.
+- `POST /api/coverage`: `mode=dashboard|field`, preserving the scan profile.
+- `POST /api/axon`: `repeatSeconds=5..60`.
+- `POST /api/wardrive`: legacy `en=1` selects Wardrive; `en=0` selects General.
+- `GET /api/status`: sensors, mode, readiness, logs, waveform, GPS and evidence.
+- `GET /api/radio`: BLE requested window/interval, scan state, drops, heap and settings.
+- USB: `CMD:PROFILE:<mode>`, `CMD:COVERAGE:<coverage>`, `CMD:HEALTH`, `CMD:STATUS`.
 
-OPT101 on D1/ADC1 is sampled by a dedicated FreeRTOS task, targeting 1 kHz.
-Current defaults accept 8-12 Hz, 10-30% duty, 8-35 ms width and four consecutive
-valid intervals, with at most 15% period change between accepted cycles.
-Invalid intervals, long pulses, ADC clipping and sampling gaps over 5 ms reset
-the train. The live panel reports actual rate, noise estimate, raw ADC, baseline,
-pulse width and gaps. These defaults are tunable starting points, not a
-universal ALPR signature or a field-calibrated classifier.
+In General, additional watchlist lines accept `oui:B4:1E:52`,
+`mac:AA:BB:CC:DD:EE:FF`, `name:Penguin`, `cid:034D`, `svc:FC81`; maximum 1024 bytes.
+Names are case-insensitive substrings. Watchlist and RSSI tracking do not operate
+in the dedicated ALPR, Pig Detector or Wardrive profiles.
 
-The noise estimate uses quiet-sample differences. Hysteresis and an adaptive
-threshold help reject noise; optical filtering and gain/headroom remain
-necessary outdoors. OPT101 sees visible and near-IR light and cannot measure
-wavelength. Its amplifier can saturate below the ADC full-scale rail, so lack
-of an ADC-clipping warning does not prove that the optical signal is usable.
-
-- `camera_pattern`: the camera's spatial/temporal heuristic matched.
-- `ir_timing_match`: OPT101 pulse timing passed the configured gates.
-- `optical_radio_nearby` (optical CSV) / `ir_radio_nearby` (radio JSON): an optical match and a qualifying Flock radio candidate occurred
-  within the 3-second correlation window. This is temporal co-occurrence,
-  not proof of a common source, confirmed identity or location of a camera.
-
-Camera and OPT101 use independent event logging. An eight-entry queue retains
-OPT101 events while the foreground loop is busy. Its overflow counter is in
-`/api/status`. Slow downloads/recording can still delay logging, camera frames
-and radio queue draining. Monitor the counters during hardware testing.
-
-### Camera view
-
-The XIAO uses a VGA (640x480) sensor frame instead of enlarging a 160x120 image.
-The sensor produces JPEG directly; a background task reads its 8x8 luminance
-block averages into an 80x60 analysis grid without full image decoding.
-Small/distant lights can be diluted by block averaging; OPT101 remains the
-primary pulse-timing input. This avoids the corruption seen with high-rate raw
-VGA while the radios were active. The browser uses normal image interpolation.
-Exposure/gain remain fixed for
-pulse detection, so the view remains a near-IR diagnostic rather than an
-auto-exposed general-purpose camera. An IR-cut-free lens and fixed white balance
-can produce unusual colors in daylight. Actual preview/recording rate depends on
-SD/network load; sensor capture and actual analysis rate are reported separately.
-The Detector FPS tile reports analysis, not merely camera capture.
-Timing gaps over 50 ms reset the camera pulse window instead of classifying
-aliased flicker. OPT101 sampling remains independent.
-
-`python tools/camera_snapshot.py --port COM44 --output snapshot.jpg` retrieves
-one bounded diagnostic JPEG over USB. Use the actual serial port. This is a
-snapshot utility, not a high-rate video transport.
-
-## Data and resource limits
-
-| Data | Path | Behavior |
-|---|---|---|
-| IR / camera events | `/logs/flock_*.csv` | Separate source and evidence columns |
-| WiGLE networks | `/wardrive/wigle_*.csv` | GPS fix required by default; passive field captures mark unknown encryption explicitly |
-| Radio candidates | `/radio/events_*.jsonl` | GPS validity, RSSI, method, tier, IR/camera evidence and drone telemetry |
-| WiFi capture | `/radio/wifi_*.pcap` | Optional; 16 MiB session limit |
-| BLE capture | `/radio/ble_*.jsonl` | Optional; 16 MiB session limit |
-
-Random session filenames prevent normal reboot collisions. Files from previous
-boots remain on SD. The Saved sessions button lists up to 100 radio files for
-download; larger collections can be read with a card reader. No automatic SD
-formatting or deletion. Power loss can leave the last record incomplete.
-
-The radio queue holds 32 observations and the live table 64 devices. The
-foreground drains up to eight observations per loop. Overflow is counted and
-does not block the WiFi/BLE callback. Repeated candidate events are limited to
-one per MAC/protocol per ten seconds, except rule-strength or optical-corroboration upgrades.
-New attention-worthy candidates can sound an alert, including weak Flock hints. Global mute suppresses sounds,
-not logging. Capture limits and SD failures are exposed in the UI.
-
-GPS fixes older than three seconds are rejected. Events delayed over three seconds
-are logged without observer coordinates rather than attaching a later location.
-Detection CSV includes observed `uptime_ms` and `logged_uptime_ms`; its UTC field is
-logging time. This makes a delayed queue drain visible. `uptime_ms` is time since
-boot, not Unix time. Missing JSON coordinates are `null`. The observer's GPS
-position must not be interpreted as the target's location. Drone positions are
-decoded broadcasts, separately labeled, and can be spoofed.
-
-USB commands at 115200 baud: `CMD:STATUS`, `CMD:HEALTH`, `CMD:VERSION`, `CMD:DUMP_LIVE`,
-`CMD:CLEAR_LIVE`, `CMD:TEST_ALERT`, `CMD:FRAME`.
-`CMD:HEALTH` returns the same camera, GPS, SD and ADC diagnostics
-as `/api/status`, for checking a flashed board without changing WiFi networks.
-Clear Live affects RAM only. Output uses a bounded write per
-foreground iteration. Historical SD files are available through the dashboard.
-
-## Validation before relying on a build
-
-Host tests exercise pulse acceptance/rejection, gaps, rollover, BLE composite
-rules, random addresses, bounds and malformed packet input. The firmware must
-also compile for the actual XIAO Sense target. Neither substitutes for hardware
-validation: run a known 10 Hz / 20 ms optical source with WiGLE, BLE, recording
-and captures enabled; verify measured rate and event counts. Test 50/60 Hz,
-sunlight, a TV remote, radio-only candidates, loss of GPS, an absent/full SD,
-and BOOT recovery. Record false positives and missed events before changing
-thresholds. No detection range or highway-speed guarantee has been established.
-
-## Detection tuning checks (0.4.4)
-
-The OPT101 path keeps the 1 kHz sampler, 8–12 Hz / 10–30% duty / 8–35 ms
-profile and four consecutive interval requirement. No threshold was loosened
-to manufacture confirmations. Synthetic tests exercise valid trains, noise,
-wrong rates, long/short pulses, clipping, dropped samples and timer rollover.
-The sensor must be wired and enabled to supply optical evidence. A 1 kHz ADC
-counter by itself proves only that the sampler runs. See the
-[TI OPT101 specification](https://www.ti.com/product/OPT101) for its broad optical
-response and amplifier limits.
-
-VGA camera analysis uses fixed exposure/gain/white balance and block-average
-brightness. Its JPEG decoder now consumes long Huffman prefixes once and uses
-speed optimization on ESP32, preserving the image and parser bounds. Camera
-frame sampling can still miss 20 ms flashes; OPT101 is the finer timing sensor.
-Use a known pulsed optical source and actual field targets to calibrate optical
-aim, ambient-light headroom and detection range. No universal ALPR frequency
-has been established by this work.
-
-The passive radio rules are checked against
-[Unified Blue’s Flock-You description](https://github.com/colonelpanichacks/oui-spy-unified-blue#mode-3-flock-you--promiscuous-wifi-edition):
-34 OUI prefixes, transmitter/receiver paths, wildcard probes and the IE
-fingerprint, plus passive BLE accessory signatures. The XIAO still shares
-one radio between WiFi and BLE; coverage is intermittent while hopping.
-
-
-## ALPR focus and evidence fusion (0.5.1)
-
-The ALPR tab lists only ALPR radio candidates and shows four evidence sources:
-OPT101 timing, camera pulse pattern, Flock BLE and Flock WiFi/OUI. The shared C++
-`AlprFusion::Tracker` accepts timestamps in either arrival order and expires each
-source after 3 seconds. Radio tiers have separate timestamps, so a newer weak
-hint cannot hide a still-recent strong signature or extend its lifetime. The Pi uses the same assessment implementation through
-its native library. Delayed queue items cannot replace newer XIAO evidence;
-unsigned timestamp differences handle millis rollover.
-
-- Optical alone, weak radio hints or OUI candidates: `possible_camera`.
-- Tier 3+ radio signature alone: `camera_signature_match`.
-- Tier 2+ radio plus either optical source: `corroborated_camera_candidate`.
-- Tier 2+ radio plus both optical sources: `multiple_sources_nearby`.
-- No unexpired evidence: `no_recent_evidence`, **not** a camera absence claim.
-
-`GET /api/status` includes `fusion` (source mask, ages, assessment and combined
-method), `alprAlert` and `profile`. Mask bits 0–3 are IR, camera, BLE and WiFi.
-`POST /api/profile` accepts `profile=alpr` or `profile=general` and persists it.
-Focus enables BLE and priority hopping without disconnecting the dashboard or
-arming an unwired sensor. Field mode must still be selected in Scanner to hop
-channels. Dashboard mode sees its current channel; WiFi and BLE share a radio.
-On the Pi a monitor-capable USB adapter is still required for packet capture.
-
-CSV source is the triggering sensor/packet. `detection_method` includes nearby
-sources within the window; a combined method does not prove a shared emitter.
-Radio MACs remain distinct in JSONL. The fusion assessment is a summary of the
-local scene; CSV `assessment` retains the candidate's tier/optical assessment.
-There is no machine-vision ALPR identification, plate recognition, wavelength
-measurement, range guarantee or universal ALPR pulse frequency.
-
-Scanner shows all signature matches and supports category filters. ALPR focus
-suppresses non-ALPR automatic sounds and tracking beeps, while continuing their
-logs and table updates. General alerts restores each device's assigned sound.
-Switching profile clears pending audio, so old alerts are not played afterward.
-The profile and radio mode are separate; tab navigation does not change either.
-
-### Biscuit and Pineapple Pager coverage
-
-[CodeHedge's GATT reference](https://codehedge.github.io/Biscuit-Wiki/3rd-party-integration/gatt-reference.html)
-documents the advertised name `Biscuit` and service
-`4fafc201-1fb5-459e-8fcc-c5c9c331914b`. An exact case-insensitive name is a tier 2
-candidate; name plus service in the same advertisement is tier 3. The UUID is
-also used by [Espressif's BLE Server example](https://github.com/espressif/arduino-esp32/blob/master/libraries/BLE/examples/Server/Server.ino),
-so UUID alone does not identify Biscuit. Passive scanning may miss a name placed
-only in a scan response. No BLE connections or pairing are initiated.
-
-[Hak5's WiFi Pineapple Pager](https://documentation.hak5.org/wifi-pineapple-pager)
-is included at the Pineapple-family candidate level only, when an AP advertises
-one of the supported recognizable names. No distinct Pager OUI, Bluetooth
-signature or sub-GHz pager decoder was verified or added. The XIAO scans 2.4 GHz
-WiFi/BLE, not 5/6 GHz WiFi or pager radio bands. A silent or renamed Pineapple
-cannot be reliably identified by these rules. Use the watchlist for known local
-MACs/names, without treating a custom rule as manufacturer confirmation.
-
-### Web flasher and deployment
-
-[Open the browser installer](https://valleytechsolutions.github.io/Flock-Noir/).
-The pinned ESP Web Tools 10.4.0 installer requires HTTPS and desktop Chrome/Edge.
-The GitHub Pages deployment follows a successful XIAO tagged-release build.
-`tools/build_flasher.py` verifies version, board, size and SHA-256 before staging
-four image parts. Offsets are 0x0, 0x8000, 0xe000 and 0x10000. The NVS range
-0x9000–0xdfff is excluded, preserving settings when Erase device is unchecked.
-Erase device resets NVS deliberately; flashing never formats the microSD card.
-The merged download written at 0x0 includes NVS padding and can reset settings;
-use the web installer's split parts or PlatformIO upload for preservation.
-The ESP32-S3 chip check cannot verify XIAO-specific board wiring.
+[Wiring and BOM](../HARDWARE.md) · [Build / install](../README.md#install-and-flash-xiao-esp32-s3-sense)

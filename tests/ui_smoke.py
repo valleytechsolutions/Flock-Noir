@@ -29,6 +29,7 @@ radio = dict(supported=True, mode='dashboard',channel=1,ble=True,capture=False,
 devices = [dict(mac='B4:1E:52:00:00:01',protocol='WiFi',name='<img src=x onerror=alert(1)>',
                 category='Flock candidate',method='wildcard_probe',tier=3,alpr=True,rssi=-61,ageMs=120,count=2)]
 posts = []
+fail_profile = [False]
 camera_requests = []
 status.update(profile='general',cameraReady=True,fusion=dict(mask=15,method='ir+camera+ble+wifi',
     assessment='multiple_sources_nearby',ageMs=[100,200,150,80],radioTier=3))
@@ -53,7 +54,12 @@ with sync_playwright() as p:
         if request.request.method == 'POST':
             posts.append(request.request.post_data)
             if path=='/api/profile':
+                if fail_profile[0]:return request.fulfill(status=500,json={'ok':False})
                 status['profile']=parse_qs(request.request.post_data)['profile'][0]
+                radio['profile']=status['profile']
+                if status.get('exclusiveModes'):
+                    mode=status['profile'];status.update(opticalActive=mode=='alpr',irPaused=mode!='alpr',wd=mode=='wardrive',irDet=False,detected=False,radioAlert=None,alprAlert=None)
+                    radio.update(wifiScanning=mode!='axon',bleWindowMs=90 if mode=='axon' else 100,bleIntervalMs=100 if mode=='axon' else 200)
             if path=='/api/settings':
                 fields=parse_qs(request.request.post_data,keep_blank_values=True)
                 for k in settings['alertKinds']:
@@ -78,7 +84,7 @@ with sync_playwright() as p:
     if os.environ.get('FLOCKNOIR_TEST_FONT'):
         page.add_style_tag(content=':root{--mono:"Courier New",monospace}')
     page.wait_for_function("document.querySelector('#bannerTxt').textContent.includes('IR + RADIO NEARBY')")
-    assert page.locator('.tab').count() == 5
+    assert page.locator('.tab').count() == 6
     assert 'by Valleytech' not in page.locator('body').inner_text()
     assert 'Your Pal Kal' in page.locator('footer').inner_text()
     assert page.locator('#rows script').count() == 0
@@ -126,6 +132,57 @@ with sync_playwright() as p:
         page.wait_for_function("document.querySelector('#radioRows').textContent.includes('Demo beacon')")
         page.evaluate("document.querySelector('#toast').classList.remove('show')")
         page.screenshot(path=os.environ['FLOCKNOIR_SCREENSHOT'],full_page=True)
+    # Exclusive XIAO modes: tabs start their scanner, view/settings tabs do not.
+    status.update(version='0.6.0',exclusiveModes=True,profile='alpr',opticalActive=True,irPaused=False)
+    radio.update(exclusiveModes=True,profile='alpr',wifiScanning=True,bleWindowMs=100,bleIntervalMs=200,axonReminderSeconds=10)
+    page.reload()
+    page.wait_for_function("document.querySelector('#activeMode').textContent==='ALPR ACTIVE'")
+    page.locator('[data-tab=pig]').click()
+    page.wait_for_function("document.querySelector('#activeMode').textContent==='PIG DETECTOR ACTIVE'")
+    assert posts[-1]=='profile=axon'
+    page.wait_for_function("document.querySelector('#pigHealth').textContent.includes('90/100')")
+    assert 'Paused by scan mode' in page.locator('#readyIr').text_content()
+    status['radioAlert']=dict(category='Axon candidate',method='axon_service',tier=2,alpr=False,rssi=-45,ageMs=100)
+    devices.append(dict(mac='00:25:DF:01:02:03',protocol='BLE',name='Axon',category='Axon candidate',method='axon_service',tier=2,alpr=False,rssi=-45,ageMs=100,count=2))
+    page.evaluate('tick()');page.evaluate('pollRadio()')
+    page.wait_for_function("document.querySelector('#pigBannerTxt').textContent.includes('POSSIBLE AXON BODY CAMERA NEARBY')")
+    assert 'Biscuit' not in page.locator('#pigRows').inner_text()
+    assert 'B4:1E' not in page.locator('#pigRows').inner_text()
+    if os.environ.get('FLOCKNOIR_PIG_SCREENSHOT'):
+        page.set_viewport_size({'width':1100,'height':1000})
+        page.evaluate("document.querySelector('#toast').classList.remove('show')")
+        page.screenshot(path=os.environ['FLOCKNOIR_PIG_SCREENSHOT'],full_page=True)
+    status['radioAlert']['ageMs']=4000;page.evaluate('tick()')
+    page.wait_for_function("document.querySelector('#pigBannerTxt').textContent.includes('NO RECENT MATCH')")
+    page.locator('#axonRepeat').fill('15');page.locator('#axonSave').click()
+    page.wait_for_function("document.querySelector('#toast').textContent==='Axon reminder saved'")
+    assert posts[-1]=='repeatSeconds=15'
+    for width in (1100,390):
+        page.set_viewport_size({'width':width,'height':1000});fits_viewport()
+    profile_count=sum(body.startswith('profile=') for body in posts)
+    page.locator('[data-tab=camera]').click()
+    assert page.locator('#recBtn').is_disabled()
+    page.locator('[data-tab=settings]').click()
+    assert sum(body.startswith('profile=') for body in posts)==profile_count
+    page.locator('[data-tab=wardrive]').click()
+    page.wait_for_function("document.querySelector('#activeMode').textContent==='WARDRIVE ACTIVE'")
+    assert posts[-1]=='profile=wardrive'
+    assert status['wd'] and status['irPaused']
+    assert page.locator('#wdEn').is_checked()
+    page.locator('#fieldCoverage').click()
+    page.wait_for_function("document.querySelector('#toast').textContent.includes('Hotspot off shortly')")
+    assert posts[-1]=='mode=field'
+    fail_profile[0]=True
+    page.locator('[data-tab=detector]').click()
+    page.wait_for_function("document.querySelector('#toast').textContent.includes('Mode change failed')")
+    assert page.locator('#wardrive').is_visible() and status['profile']=='wardrive'
+    fail_profile[0]=False
+    page.locator('[data-tab=detector]').click()
+    page.wait_for_function("document.querySelector('#activeMode').textContent==='ALPR ACTIVE'")
+    assert not status['wd'] and not status['irPaused']
+    # Restore legacy fixtures for the existing hardware capability fallback.
+    status.update(exclusiveModes=False,irDet=True,radioNearby=True)
+    radio['exclusiveModes']=False
     radio['supported'] = False
     page.reload()
     page.wait_for_function("document.querySelector('#bannerTxt').textContent.includes('IR + RADIO NEARBY')")

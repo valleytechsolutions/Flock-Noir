@@ -118,6 +118,32 @@ inline Advert advert(const uint8_t *p, size_t n) {
   }
   return a;
 }
+// SIG company 0x034D = TASER International; member UUID 0xFC81 = Axon.
+// These are vendor evidence, not proof of a body camera or its recording state.
+inline Match axonMatch(const Advert &a,const uint8_t *mac,bool publicAddress) {
+  if(a.malformed)return {};
+  bool company=a.hasCompany(0x034d),service=a.hasService(0xfc81);
+  if(company && service)return {"Axon candidate","axon_company_service",3,false};
+  if(company)return {"Axon candidate","axon_company",2,false};
+  if(service)return {"Axon candidate","axon_service",2,false};
+  if(starts(a.name,"axon ") || starts(a.name,"axon-") || equal(a.name,"axon"))return {"Axon candidate","axon_name",2,false};
+  if(publicAddress && mac[0]==0 && mac[1]==0x25 && mac[2]==0xdf)return {"Axon candidate","public_oui",1,false};
+  return {};
+}
+inline Match alprBleMatch(const Advert &a,const uint8_t *mac,bool publicAddress) {
+  if(a.malformed)return {};
+  if(a.flockService) return {"Flock accessory","service_uuid128",3,true};
+  if(starts(a.name,"penguin-") && serialName(a.name+8))return {"Flock battery candidate","penguin_serial",2,true};
+  if(contains(a.name,"penguin-") || contains(a.name,"fs ext battery") || contains(a.name,"flock"))
+    return {"Flock candidate","name",2,true};
+  if(a.hasCompany(0x09c8)) return {"Flock battery hint","xuntong_company",1,true};
+  for(size_t i=0;i<a.serviceCount;++i) if(a.services[i]>=0x3100 && a.services[i]<=0x3500)
+    return {"Raven candidate","service_range",1,true};
+  if(serialName(a.name))return {"Flock battery hint","bare_serial",1,true};
+  if(a.nordicDfu || equal(a.name,"dfutarg"))return {"Flock DFU hint","nordic_dfu",1,true};
+  if(publicAddress && flockPrefix(mac))return {"Flock","public_oui",1,true};
+  return {};
+}
 inline Match bleMatch(const Advert &a, const uint8_t *mac, bool publicAddress) {
   if(a.malformed) return {};
   if((a.hasCompany(0x0d53) && a.hasService(0xfd5f)) || contains(a.name,"ray-ban") ||
@@ -127,8 +153,7 @@ inline Match bleMatch(const Advert &a, const uint8_t *mac, bool publicAddress) {
   if(starts(a.name,"penguin-") && serialName(a.name+8))return {"Flock battery candidate","penguin_serial",2,true};
   if(contains(a.name,"penguin-") || contains(a.name,"fs ext battery") || contains(a.name,"flock"))
     return {"Flock candidate","name",2,true};
-  if(a.hasCompany(0x034d) || a.hasService(0xfc81)) return {"Axon candidate","company_or_service",2,false};
-  if(starts(a.name,"axon ") || equal(a.name,"axon"))return {"Axon candidate","name",2,false};
+  auto axon=axonMatch(a,mac,publicAddress);if(axon.tier)return axon;
   bool flipperService=false;
   for(size_t i=0;i<a.serviceCount;++i)if(a.services[i]>=0x3080 && a.services[i]<=0x3083)flipperService=true;
   if(flipperService && a.appearance==0x8600)return {"Flipper Zero candidate","flipper_composite",3,false};

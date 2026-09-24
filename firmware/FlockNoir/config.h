@@ -5,7 +5,7 @@
 // =============================================================================
 #pragma once
 
-#define FLOCK_NOIR_VERSION "0.5.1"
+#define FLOCK_NOIR_VERSION "0.6.0"
 
 // -----------------------------------------------------------------------------
 //  WiFi SoftAP  (device makes its own network -- no internet needed in field)
@@ -122,40 +122,26 @@
 #define CAM_PIXEL_STRIDE   1         // scan every pixel in the scaled analysis image
 
 // -----------------------------------------------------------------------------
-//  Detection SENSITIVITY
-//  These defaults are deliberately LOOSE ("approximate" mode): they fire when a
-//  signal is *close* to the ALPR IR pattern, so you WILL get false positives --
-//  that is the trade for not missing a real one. The confidence and duty are
-//  written to the CSV so you can filter/verify later. To make it STRICTER again
-//  (fewer false positives), move each value back toward the "(strict)" note.
-//    ALWAYS visually confirm an actual camera before trusting a hit.
+//  Experimental optical timing profile. No universal ALPR strobe frequency is
+//  established. OPT101 validates width/duty directly; the camera reports frame-
+//  limited brightness candidates, including explicitly flagged half-rate aliases.
 // -----------------------------------------------------------------------------
 // A pixel at/above this 8-bit value counts toward the IR "blob" (compactness).
 #define SAT_THRESHOLD      120       // (strict ~230) lower = counts dimmer spots
 // Minimum peak-to-peak brightness swing before we bother analyzing.
 #define MIN_AMPLITUDE      6         // (strict ~25) lower = catch faint flicker
-// Target flash characteristics (Flock-style ~10 Hz, ~20% duty).
+// Reference test waveform: 10 Hz, 20 ms pulses. NOT an authenticated Flock fingerprint.
 #define TARGET_FREQ_HZ     10.0f
 #define TARGET_PERIOD_MS   100.0f
-#define PERIOD_TOL_MS      45.0f     // (strict ~18) accept ~6.5..18 Hz between edges
-#define DUTY_MIN           0.03f     // (strict ~0.10)
-#define DUTY_MAX           0.40f     // a real strobe is short-on (~0.2); random noise reads ~0.5
-// How many matching cycles inside the window before we call it.
-#define MIN_GOOD_CYCLES    3         // (strict ~8) fewer = fires on a brief match
-// Confidence needed to raise/log/beep an alert (0..1).
-#define DETECT_CONFIDENCE  0.30f     // (strict ~0.6) lower = more (and looser) hits
-// Minimum fraction of rising-edge intervals that must land near the target
-// period. Kept loose because at ~40 fps a 20 ms pulse can fall between frames
-// and a real strobe only scores ~0.6 here.
-#define PERIOD_SCORE_MIN   0.35f
-// Regularity gate: spread of the matching intervals (std/mean). A real strobe
-// repeats at the same interval (measures <= 0.09); sensor noise that happens
-// to land in the tolerance band is ragged (>= 0.19). This is what stops the
-// detector from beeping on noise with no camera present.
+#define DUTY_MIN           0.03f     // camera-observed duty, frame limited
+#define DUTY_MAX           0.40f
+#define MIN_GOOD_CYCLES    4
+#define DETECT_CONFIDENCE  0.60f
+// Most observed intervals must fit. The analyzer accounts for frame quantization
+// and flags half-rate aliases instead of presenting them as precise measurements.
+#define PERIOD_SCORE_MIN   0.65f
 #define JITTER_MAX         0.15f
-// Reject only if the bright area fills MORE than this fraction of the frame
-// (that is whole-frame flicker, not a compact source). Loose here = permissive.
-#define BLOB_MAX_FRACTION  0.90f     // (strict ~0.35)
+#define BLOB_MAX_FRACTION  0.35f     // reject broad scene flicker / ambient changes
 
 // Sliding analysis window.
 #define SAMPLE_BUFFER      256       // ~5-8 s of frames depending on fps
@@ -193,22 +179,17 @@ static_assert(IR_SENSOR_PIN != BUZZER_PIN && IR_SENSOR_PIN != GPS_RX_PIN && IR_S
 // -----------------------------------------------------------------------------
 //  Logging
 // -----------------------------------------------------------------------------
-#define CSV_DIR            "/logs"          // IR-detection CSVs live here
-#define CSV_HEADER  "iso_utc,uptime_ms,source,lat,lon,alt_m,sats,hdop,freq_hz,duty,confidence,blob_x,blob_y,blob_frac,level_pp,evidence,logged_uptime_ms,detection_method,category,assessment,mac,rssi,radio_method,radio_tier,ir_timing_match,camera_pattern"
+#define CSV_DIR            "/alpr"          // IR-detection CSVs live here
+#define CSV_HEADER  "iso_utc,uptime_ms,source,lat,lon,alt_m,sats,hdop,freq_hz,duty,confidence,blob_x,blob_y,blob_frac,level_pp,evidence,logged_uptime_ms,detection_method,category,assessment,mac,rssi,radio_method,radio_tier,ir_timing_match,camera_pattern,ir_pulse_ms,ir_sample_hz,camera_sample_hz,camera_timing,scan_mode"
 #define RECENT_ALERTS      12        // how many recent alerts the web UI keeps
 
 // -----------------------------------------------------------------------------
-//  Wardriver  (WiFi 2.4 GHz -> WiGLE-compatible CSV, SEPARATE file from IR log)
-//  Modeled on the "piglet" wardriver: WiFi-only, WiGLE CSV, GPS-tagged.
-//  Runs the radio in AP+STA so the web UI stays up; note that each scan hops
-//  channels, so a connected browser may hiccup briefly during a scan. The IR
-//  camera detector is unaffected.
+//  Dedicated WiFi 2.4 GHz + BLE survey mode. No optical or device alerts.
+//  GPS-tagged WiGLE CSV remains separate from ALPR candidate logs.
 // -----------------------------------------------------------------------------
-#define WARDRIVE_DEFAULT_ON   0              // start wardriving at boot? (off = UI stable)
 #define WARDRIVE_SCAN_MS      3000           // min gap between WiFi scans (ms)
 #define WARDRIVE_DEDUP_RING   512            // recent BSSIDs kept to skip dupes
 #define WARDRIVE_DIR          "/wardrive"    // WiGLE CSVs live here
-#define WARDRIVE_LOG_NEEDS_FIX 1             // only log APs when GPS has a fix
 #define WIGLE_APP_RELEASE     FLOCK_NOIR_VERSION
 #define WIGLE_DEVICE_NAME     "FlockNoir"
 

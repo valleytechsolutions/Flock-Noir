@@ -1,6 +1,6 @@
 # Credits and upstream research
 
-Flock Noir is made by Valleytech Custom Solutions, @valleytechsolutions, Your Pal Kal.
+Flock Noir is made by **Your Pal Kal**.
 
 ## Colonel Panic and OUI Spy
 
@@ -91,3 +91,10 @@ their own licenses. Credits do not replace any upstream license requirements.
 
 Continued thanks and support to [Colonel Panic](https://colonelpanic.tech/) and
 [OUI Spy Unified Blue](https://github.com/colonelpanichacks/oui-spy-unified-blue).
+
+## XIAO 0.6.0 reference checks (September 24, 2026)
+
+- Bluetooth SIG [company identifiers](https://bitbucket.org/bluetooth-SIG/public/src/main/assigned_numbers/company_identifiers/company_identifiers.yaml): `0x034D` is TASER International, Inc.; [member UUIDs](https://bitbucket.org/bluetooth-SIG/public/src/main/assigned_numbers/uuids/member_uuids.yaml): `0xFC81` is Axon Enterprise, Inc. These are vendor identifiers, not body-camera model confirmation.
+- [Axon Body 4 nearby activation documentation](https://www.axon.com/help/axon-body-4/cameras-and-sensors/body/body-nearby-activation.htm): documents conditional, time-limited Bluetooth beacons. Flock Noir does not assume every Axon camera continuously advertises.
+- [WiGLE NetworkCsv](https://github.com/wiglenet/wigle-wifi-wardriving/blob/main/wiglewifiwardriving/src/main/java/net/wigle/wigleandroid/util/NetworkCsv.java), [LocationCsv](https://github.com/wiglenet/wigle-wifi-wardriving/blob/main/wiglewifiwardriving/src/main/java/net/wigle/wigleandroid/util/LocationCsv.java) and [NetworkType](https://github.com/wiglenet/wigle-wifi-wardriving/blob/main/wiglewifiwardriving/src/main/java/net/wigle/wigleandroid/model/NetworkType.java): public CSV field and `WIFI` / `BLE` type conventions; serialization is independently implemented.
+- [Axis license-plate capture white paper](https://whitepapers.axis.com/en-us/license-plate-capture): application and illumination context. No universal 10 Hz ALPR identity claim is inferred from this source. The project's 8–12 Hz profile remains an experimental test configuration.

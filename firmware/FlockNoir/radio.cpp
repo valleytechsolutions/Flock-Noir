@@ -2,6 +2,7 @@
 #include "config.h"
 #include "wardriver.h"
 #include "buzzer.h"
+#include "wifi_security.h"
 #include <WiFi.h>
 #include <SD.h>
 #include <Preferences.h>
@@ -15,6 +16,8 @@
 Radio radio;
 static std::atomic<bool> bleReady{false},bleScanning{false},bleBusy{false};
 static std::atomic<bool> bleFault{false};
+static std::atomic<ScanMode::Mode> callbackMode{ScanMode::General};
+static std::atomic<uint32_t> callbackGeneration{0},wifiFramesSeen{0},bleAdvertisementsSeen{0};
 static std::atomic<bool> captureAll{false},customWatch{false};
 static constexpr uint32_t CAPTURE_LIMIT=16*1024*1024;
 static bool opticalNearby(uint32_t when,uint32_t optical) {
@@ -35,13 +38,22 @@ static String macString(const uint8_t *m) {
   char s[18]; snprintf(s,sizeof(s),"%02X:%02X:%02X:%02X:%02X:%02X",m[0],m[1],m[2],m[3],m[4],m[5]); return s;
 }
 static void wifiReceive(void *buf,wifi_promiscuous_pkt_type_t type) {
+  if(!ScanMode::wifi(callbackMode.load()))return;
   if(!buf || (type!=WIFI_PKT_MGMT && type!=WIFI_PKT_DATA)) return;
   auto *p=static_cast<wifi_promiscuous_pkt_t *>(buf);
   if(p->rx_ctrl.rx_state || p->rx_ctrl.sig_len<28) return;
+  ++wifiFramesSeen;
+  if(callbackMode==ScanMode::Wardrive && (type!=WIFI_PKT_MGMT || ((p->payload[0]&0xfc)!=0x80 && (p->payload[0]&0xfc)!=0x50)))return;
   if(type==WIFI_PKT_DATA && !captureAll && !customWatch &&
      !RadioProtocol::flockPrefix(p->payload+4) && !RadioProtocol::flockPrefix(p->payload+10) &&
      !*RadioProtocol::vendor(p->payload+10)) return;
+  if(callbackMode==ScanMode::Alpr && !RadioProtocol::flockPrefix(p->payload+4) &&
+     !RadioProtocol::flockPrefix(p->payload+10) && !RadioProtocol::flockPrefix(p->payload+16)) {
+    auto w=RadioProtocol::wifi(p->payload,p->rx_ctrl.sig_len-4);
+    if(!w.valid || !RadioProtocol::ssidMatch(w.ssid).alpr)return;
+  }
   RadioObservation o;
+  o.generation=callbackGeneration.load();
   o.ms=millis(); o.original=p->rx_ctrl.sig_len-4; // omit FCS, including from PCAP
   o.length=min(size_t(o.original),sizeof(o.data));
   o.rssi=p->rx_ctrl.rssi;o.channel=p->rx_ctrl.channel;
@@ -50,11 +62,20 @@ static void wifiReceive(void *buf,wifi_promiscuous_pkt_type_t type) {
 static int bleEvent(ble_gap_event *event,void *) {
   if(event->type==BLE_GAP_EVENT_DISC_COMPLETE) {bleScanning=false;return 0;}
   if(event->type!=BLE_GAP_EVENT_DISC)return 0;
+  ++bleAdvertisementsSeen;
   const auto &p=event->disc;
   RadioObservation o;
+  o.generation=callbackGeneration.load();
   o.kind=1;o.ms=millis();o.rssi=p.rssi;o.addressType=p.addr.type;o.eventType=p.event_type;
   for(int i=0;i<6;++i)o.mac[i]=p.addr.val[5-i];
   o.length=min(size_t(p.length_data),sizeof(o.data));o.original=o.length;
+  auto mode=callbackMode.load();
+  if(mode==ScanMode::Axon || mode==ScanMode::Alpr) {
+    auto a=RadioProtocol::advert(p.data,o.length);
+    auto match=mode==ScanMode::Axon?RadioProtocol::axonMatch(a,o.mac,p.addr.type==BLE_ADDR_PUBLIC):
+      RadioProtocol::alprBleMatch(a,o.mac,p.addr.type==BLE_ADDR_PUBLIC);
+    if(!match.tier)return 0;
+  }
   memcpy(o.data,p.data,o.length);radio.enqueue(o);return 0;
 }
 static void bleHost(void *) {nimble_port_run();nimble_port_freertos_deinit();}
@@ -65,6 +86,8 @@ void Radio::enqueue(const RadioObservation &o) {
   if(!_queue || xQueueSend(_queue,&o,0)!=pdTRUE) ++_dropped;
 }
 bool Radio::startWifi() {
+  if(_profile==ScanMode::Axon && _field)return true;
+  if(!ScanMode::wifi(_profile))return esp_wifi_set_promiscuous(false)==ESP_OK;
   wifi_promiscuous_filter_t filter={};
   filter.filter_mask=WIFI_PROMIS_FILTER_MASK_MGMT|WIFI_PROMIS_FILTER_MASK_DATA;
   return esp_wifi_set_promiscuous_filter(&filter)==ESP_OK &&
@@ -78,12 +101,21 @@ void Radio::begin(bool sdReady) {
   Preferences prefs;
   if(prefs.begin("flockradio",true)) {
     _ble=prefs.getBool("ble",true);_watch=prefs.getString("watch","");_target=prefs.getString("target","");
-    _dashboardChannel=prefs.getUChar("channel",1);_alprFocus=prefs.getBool("alpr",false);prefs.end();
+    _dashboardChannel=prefs.getUChar("channel",1);
+    _profile=prefs.getBool("alpr",false)?ScanMode::Alpr:ScanMode::General;
+    ScanMode::parse(prefs.getString("profile",profile()).c_str(),_profile);
+    _axonRepeatMs=constrain(prefs.getUInt("axonRepeat",10),5u,60u)*1000;
+    prefs.end();
     if(prefs.begin("flockradio",true)) {_allChannels=prefs.getBool("allchan",false);prefs.end();}
   }
+  callbackMode=_profile;
+  if(_profile!=ScanMode::General)_ble=true;
+  if(_profile==ScanMode::Wardrive)_allChannels=true;
+  if(_profile==ScanMode::Alpr)_allChannels=false;
+  extern void applyScanProfile();applyScanProfile();
   if(_dashboardChannel<1 || _dashboardChannel>11) _dashboardChannel=1;
   _channel=_dashboardChannel;
-  customWatch=_watch.length()>0 || _target.length()>0;
+  customWatch=_profile==ScanMode::General && (_watch.length()>0 || _target.length()>0);
   _switchAt=millis()+1; // restore the saved dashboard channel through the mode state machine
   _wifiReady=startWifi();
   if(!_wifiReady) Serial.println("[RADIO] promiscuous initialization failed; will retry");
@@ -107,16 +139,29 @@ static bool validHex(const String &s,int digits,bool colon) {
   }
   return count==digits;
 }
-bool Radio::setProfile(const String &profile) {
-  if(profile!="alpr" && profile!="general")return false;
+bool Radio::setProfile(const String &value) {
+  ScanMode::Mode selected;if(!ScanMode::parse(value.c_str(),selected))return false;
+  if(selected==_profile)return true;
   Preferences prefs;if(!prefs.begin("flockradio",false))return false;
-  bool focus=profile=="alpr";
-  bool ok=prefs.putBool("alpr",focus)>0;
-  if(focus)ok=prefs.putBool("ble",true)>0 && prefs.putBool("allchan",false)>0 && ok;
-  prefs.end();if(!ok)return false;
-  _alprFocus=focus;if(focus){_ble=true;_allChannels=false;}
-  buzzer.clearAlerts();for(auto &d:_devices)d.encounter=RadioEncounter();
+  bool ok=prefs.putString("profile",value)==value.length();prefs.end();if(!ok)return false;
+  _profile=selected;
+  if(selected!=ScanMode::General)_ble=true;
+  if(selected==ScanMode::Alpr)_allChannels=false;
+  if(selected==ScanMode::Wardrive)_allChannels=true;
+  captureAll=_profile==ScanMode::General && _capture;customWatch=_profile==ScanMode::General && (_watch.length()>0 || _target.length()>0);
+  callbackMode=_profile;callbackGeneration=++_generation;
+  if(_queue)xQueueReset(_queue);
+  _restartBle=true;_retryAt=millis()-2000;
+  buzzer.clearAlerts();buzzer.stop();clearLive();_axonReminder=ScanMode::Reminder();
+  _wifiReady=startWifi();_switchAt=millis()+1;
+  extern void applyScanProfile();applyScanProfile();
   return true;
+}
+bool Radio::setAxonReminder(uint32_t seconds) {
+  if(seconds<5 || seconds>60)return false;
+  Preferences prefs;if(!prefs.begin("flockradio",false))return false;
+  bool ok=prefs.putUInt("axonRepeat",seconds)>0;prefs.end();
+  if(ok)_axonRepeatMs=seconds*1000;return ok;
 }
 bool Radio::configure(const String &mode,bool ble,bool cap,const String &watch,const String &target,int channel,const String &hop) {
   if(hop!="priority" && hop!="all")return false;
@@ -139,9 +184,10 @@ bool Radio::configure(const String &mode,bool ble,bool cap,const String &watch,c
     prefs.putString("target",target)==target.length() && prefs.putUChar("channel",channel)>0 &&
     prefs.putBool("allchan",hop=="all")>0;
   prefs.end();if(!ok)return false;
-  _ble=ble;_capture=cap;_watch=watch;_target=target;_target.toUpperCase();
-  _allChannels=hop=="all";
-  captureAll=cap;customWatch=watch.length()>0 || target.length()>0;
+  _restartBle=true;
+  _ble=_profile==ScanMode::General?ble:true;_capture=cap;_watch=watch;_target=target;_target.toUpperCase();
+  _allChannels=_profile==ScanMode::Wardrive || hop=="all";
+  captureAll=_profile==ScanMode::General && cap;customWatch=_profile==ScanMode::General && (watch.length()>0 || target.length()>0);
   _desiredField=mode=="field";_dashboardChannel=channel;_switchAt=millis()+1200;
   return true;
 }
@@ -160,7 +206,7 @@ RadioProtocol::Match Radio::watchMatch(const uint8_t *mac,const char *name,const
   return {};
 }
 void Radio::capture(const RadioObservation &o) {
-  if(!_capture || !_sd)return;
+  if(_profile!=ScanMode::General || !_capture || !_sd)return;
   if(o.kind) {
     if(_bleBytes>=CAPTURE_LIMIT)return;
     String hex;hex.reserve(o.length*2);
@@ -186,6 +232,7 @@ void Radio::capture(const RadioObservation &o) {
 }
 void Radio::observe(const RadioObservation &o,const uint8_t *mac,const char *name,RadioProtocol::Match match,
  const RadioProtocol::Drone &drone,bool fix,double lat,double lon,const char *iso,bool ir,bool camera,bool muted) {
+  if(!ScanMode::accepts(_profile,o.kind,match.alpr,RadioProtocol::starts(match.category,"Axon")))return;
   if(match.alpr && match.tier)_fusion.observe(o.kind?AlprFusion::Ble:AlprFusion::Wifi,o.ms,match.tier);
   Device *d=nullptr,*oldest=&_devices[0];
   for(auto &candidate:_devices) {
@@ -203,7 +250,7 @@ void Radio::observe(const RadioObservation &o,const uint8_t *mac,const char *nam
   if(match.tier && (match.tier>=d->tier || o.ms-d->matched>8000)) {d->matched=o.ms;d->tier=match.tier;d->alpr=match.alpr;strlcpy(d->category,match.category,sizeof(d->category));strlcpy(d->method,match.method,sizeof(d->method));}
   if(RadioProtocol::attention(match)) {
     bool fresh=d->encounter.observe(match.tier,o.ms);
-    if((fresh || opticalUpgrade) && (!_alprFocus || match.alpr) && !muted && buzzer.enabled()) {
+    if((fresh || opticalUpgrade) && _profile!=ScanMode::Axon && !muted && buzzer.enabled()) {
       buzzer.requestAlert(AlertTones::classify(match,o.kind,ir,camera));++_alertRequests;
     }
   }
@@ -219,7 +266,7 @@ void Radio::observe(const RadioObservation &o,const uint8_t *mac,const char *nam
   if(!match.tier || (!newEvidence && d->logged && o.ms-d->logged<10000))return;
   d->logged=o.ms;
   ++_events;
-  String row="{\"schema\":1,\"time\":"+jsonQuote(iso)+",\"uptime_ms\":"+String(o.ms)+
+  String row="{\"schema\":1,\"time\":"+jsonQuote(iso)+",\"scan_mode\":"+jsonQuote(profile())+",\"uptime_ms\":"+String(o.ms)+
     ",\"protocol\":"+jsonQuote(o.kind?"ble":"wifi")+",\"mac\":"+jsonQuote(macString(mac))+
     ",\"name\":"+jsonQuote(d->name)+",\"category\":"+jsonQuote(match.category)+",\"method\":"+jsonQuote(match.method)+
     ",\"detection_method\":"+jsonQuote((match.alpr?_fusion.snapshot(o.ms).method():detectionMethod(false,false,o.kind,!o.kind)))+
@@ -241,25 +288,36 @@ void Radio::observe(const RadioObservation &o,const uint8_t *mac,const char *nam
   if(!g_serialReplyActive && Serial && Serial.availableForWrite()>int(row.length()+2))Serial.println(row);
 }
 void Radio::process(const RadioObservation &o,bool fix,double lat,double lon,double alt,const char *iso,bool ir,bool camera,bool muted) {
+  if(o.generation!=generation() || (_profile==ScanMode::Axon && !o.kind))return;
+  (void)alt;
   capture(o);
   fix = fix && millis()-o.ms <= GPS_MAX_AGE_MS;
   RadioProtocol::Drone drone;
   if(o.kind) {
     auto a=RadioProtocol::advert(o.data,o.length);
     if(a.malformed)return;
-    auto match=RadioProtocol::bleMatch(a,o.mac,o.addressType==BLE_ADDR_PUBLIC);
-    if(RadioProtocol::drone(a.remote,a.remoteLen,drone))match={"Drone Remote ID","ble_remote_id",3,false};
-    if(!match.tier)match=watchMatch(o.mac,a.name,&a);
-    observe(o,o.mac,a.name,match,drone,fix,lat,lon,iso,ir,camera,muted);
+    if(_profile==ScanMode::Wardrive) {
+      wardriver.observe(o.mac,a.name,"[LE]",0,o.rssi,true,o.ms);return;
+    }
+    if(_profile==ScanMode::Axon) {
+      auto match=RadioProtocol::axonMatch(a,o.mac,o.addressType==BLE_ADDR_PUBLIC);
+      if(match.tier)observe(o,o.mac,a.name,match,drone,fix,lat,lon,iso,false,false,muted);
+      return;
+    }
+    auto match=_profile==ScanMode::Alpr?RadioProtocol::alprBleMatch(a,o.mac,o.addressType==BLE_ADDR_PUBLIC):
+      RadioProtocol::bleMatch(a,o.mac,o.addressType==BLE_ADDR_PUBLIC);
+    if(_profile==ScanMode::General && RadioProtocol::drone(a.remote,a.remoteLen,drone))match={"Drone Remote ID","ble_remote_id",3,false};
+    if(!match.tier && _profile==ScanMode::General)match=watchMatch(o.mac,a.name,&a);
+    if(match.tier || (_target.length() && _target==macString(o.mac)))
+      observe(o,o.mac,a.name,match,drone,fix,lat,lon,iso,ir,camera,muted);
     return;
   }
   auto w=RadioProtocol::wifi(o.data,o.length);if(!w.valid)return;
-  if(w.beacon && _field) {
-    char when[24];strlcpy(when,iso,sizeof(when));
-    if(strlen(when)>=19) {when[10]=' ';when[19]=0;}
-    wardriver.observePassive(o.data+10,w.ssid,o.channel,o.rssi,(o.data[34]&0x10)!=0,fix,lat,lon,alt,when);
+  if(_profile==ScanMode::Wardrive) {
+    if(w.beacon)wardriver.observe(o.data+10,w.ssid,WifiSecurity::capabilities(o.data,o.length),o.channel,o.rssi,false,o.ms);
+    return;
   }
-  bool remote=RadioProtocol::drone(w.remote,w.remoteLen,drone);
+  bool remote=_profile==ScanMode::General && RadioProtocol::drone(w.remote,w.remoteLen,drone);
   // addr1 is the receiver: its RSSI belongs to the transmitting frame, not that target.
   const int offsets[]={10,4,16};
   for(int i=0;i<3;++i) {
@@ -271,12 +329,13 @@ void Radio::process(const RadioObservation &o,bool fix,double lat,double lon,dou
     RadioProtocol::Match m;
     if(i==0 && remote)m={"Drone Remote ID","wifi_remote_id",3,false};
     else m=RadioProtocol::wifiMatch(w,mac,i,(o.data[0]&0xfc)==0x40);
-    if(!m.tier)m=watchMatch(mac,w.ssid,nullptr);
+    if(!m.tier && _profile==ScanMode::General)m=watchMatch(mac,w.ssid,nullptr);
     if(m.tier || (i==0 && _target==macString(mac))) observe(o,mac,w.ssid,m,drone,fix,lat,lon,iso,ir,camera,muted);
   }
 }
 void Radio::update(bool fix,double lat,double lon,double alt,const char *iso,bool ir,bool camera,bool muted) {
   uint32_t now=millis();
+  ir=ir && opticalEnabled();camera=camera && opticalEnabled();
   if(ir){_irAt=now;optical(true,now);}
   if(camera){_cameraAt=now;optical(false,now);}
   if(!digitalRead(RADIO_BOOT_PIN)) {
@@ -288,38 +347,49 @@ void Radio::update(bool fix,double lat,double lon,double alt,const char *iso,boo
   if(_switchAt && int32_t(now-_switchAt)>=0) {
     _switchAt=0;
     if(wardriver.scanning()) {esp_wifi_scan_stop();WiFi.scanDelete();}
-    bool ok=WiFi.mode(_desiredField ? WIFI_STA : WIFI_AP_STA);
+    _restartBle=true;
+    bool radioOff=_desiredField && _profile==ScanMode::Axon;
+    bool ok=WiFi.mode(radioOff?WIFI_OFF:_desiredField?WIFI_STA:WIFI_AP_STA);
     if(!_desiredField) {
       const IPAddress ip(192,168,4,1);
       ok=WiFi.softAPConfig(ip,ip,IPAddress(255,255,255,0)) && ok;
       ok=WiFi.softAP(AP_SSID,AP_PASSWORD,_dashboardChannel) && ok;
     }
     if(ok) {_field=_desiredField;_channel=_field?1:_dashboardChannel;}
-    if(esp_wifi_set_channel(_channel,WIFI_SECOND_CHAN_NONE)!=ESP_OK)ok=false;
+    if(!radioOff && esp_wifi_set_channel(_channel,WIFI_SECOND_CHAN_NONE)!=ESP_OK)ok=false;
     _wifiReady=startWifi() && ok;
     if(!ok) {Serial.println("[RADIO] mode change failed; retrying");_switchAt=now+2000;}
   }
-  if(_field && now-_hopAt>=RADIO_DWELL_MS) {
+  if(_field && ScanMode::wifi(_profile) && now-_hopAt>=RADIO_DWELL_MS) {
     _hopAt=now;uint8_t next=_allChannels?(_channel>=11?1:_channel+1):(_channel==1?6:_channel==6?11:1);
     if(esp_wifi_set_channel(next,WIFI_SECOND_CHAN_NONE)==ESP_OK)_channel=next;
   }
   if(now-_retryAt>=2000) {
     _retryAt=now;
     if(!_wifiReady)_wifiReady=startWifi();
+    if(_restartBle && bleScanning && !bleBusy) {
+      int err=ble_gap_disc_cancel();
+      if(err==0 || err==BLE_HS_EALREADY){bleScanning=false;_restartBle=false;}else bleFault=true;
+    }
     if(bleReady && !bleBusy && _ble!=bleScanning.load()) {
       bleBusy=true;
       ble_gap_disc_params params={};
-      params.passive=1;params.itvl=800;params.window=80;params.filter_duplicates=0;
+      params.passive=1;params.itvl=ScanMode::interval(_profile);params.window=ScanMode::window(_profile,_field);params.filter_duplicates=0;
       int err=_ble ? ble_gap_disc(BLE_OWN_ADDR_PUBLIC,BLE_HS_FOREVER,&params,bleEvent,nullptr) : ble_gap_disc_cancel();
       bleBusy=false;
-      if(err==0) {bleScanning=_ble;bleFault=false;} else bleFault=true;
+      if(err==0) {bleScanning=_ble;bleFault=false;_restartBle=false;} else bleFault=true;
     }
   }
   _bleReady=bleReady;_bleScanning=bleScanning;
   RadioObservation o;
   for(int i=0;_queue && i<8 && xQueueReceive(_queue,&o,0)==pdTRUE;++i)
     process(o,fix,lat,lon,alt,iso,opticalNearby(o.ms,_irAt),opticalNearby(o.ms,_cameraAt),muted);
-  for(const auto &d:_devices) if(d.used && (!_alprFocus || d.alpr) && _target==macString(d.mac) && now-d.seen<2500 &&
+  if(_profile==ScanMode::Axon) {
+    for(const auto &d:_devices)if(d.used && d.tier && _axonReminder.due(now,d.matched,!muted && buzzer.enabled(),_axonRepeatMs)) {
+      buzzer.requestAlert(AlertTones::Axon);++_alertRequests;break;
+    }
+  }
+  for(const auto &d:_devices) if(d.used && _profile==ScanMode::General && _target==macString(d.mac) && now-d.seen<2500 &&
     strcmp(d.method,"oui_addr1") && strcmp(d.method,"oui_addr3")) {
     uint32_t gap=constrain((-d.rssi-30)*25,120,2000);
     if(!muted && buzzer.enabled() && now-_trackBeep>=gap && !buzzer.isPlaying()) {buzzer.play("track:d=32,o=6,b=200:c");_trackBeep=now;}
@@ -374,11 +444,17 @@ String Radio::fusionJson(uint32_t now) const {
 }
 String Radio::json() const {
   return "{\"supported\":true,\"mode\":"+jsonQuote(_field?"field":"dashboard")+
+    ",\"wifiFramesSeen\":"+String(wifiFramesSeen.load())+",\"bleAdvertisementsSeen\":"+String(bleAdvertisementsSeen.load())+
     ",\"profile\":"+jsonQuote(profile())+
+    ",\"exclusiveModes\":true,\"opticalActive\":"+(opticalEnabled()?"true":"false")+
+    ",\"wifiScanning\":"+(ScanMode::wifi(_profile) && _wifiReady?"true":"false")+
+    ",\"bleIntervalMs\":"+String(ScanMode::interval(_profile)*0.625f,1)+
+    ",\"bleWindowMs\":"+String(ScanMode::window(_profile,_field)*0.625f,1)+
+    ",\"axonReminderSeconds\":"+String(axonReminderSeconds())+
     ",\"hop\":"+jsonQuote(_allChannels?"all":"priority")+
     ",\"channel\":"+String(_channel)+",\"ble\":"+(_ble?"true":"false")+",\"bleScanning\":"+(_bleScanning?"true":"false")+
     ",\"wifiReady\":"+(_wifiReady?"true":"false")+",\"bleReady\":"+(_bleReady && !bleFault?"true":"false")+
-    ",\"capture\":"+(_capture?"true":"false")+",\"packets\":"+String(_packets.load())+
+    ",\"capture\":"+(_profile==ScanMode::General && _capture?"true":"false")+",\"packets\":"+String(_packets.load())+
     ",\"dropped\":"+String(_dropped.load())+",\"logErrors\":"+String(_logErrors)+
     ",\"freeHeap\":"+String(ESP.getFreeHeap())+",\"minFreeHeap\":"+String(ESP.getMinFreeHeap())+
     ",\"captureFull\":"+(_pcapBytes>=CAPTURE_LIMIT || _bleBytes>=CAPTURE_LIMIT?"true":"false")+

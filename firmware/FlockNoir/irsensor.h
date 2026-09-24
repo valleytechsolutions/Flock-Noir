@@ -22,7 +22,7 @@ struct IrResult {
   float pulseMs = 0, sampleHz = 0, noise = 0;
   uint32_t gaps = 0;
   uint16_t raw = 0;
-  uint32_t timestampMs = 0, droppedEvents = 0;
+  uint32_t timestampMs = 0, droppedEvents = 0, generation = 0;
 };
 
 class IrSensor {
@@ -30,6 +30,9 @@ public:
   void begin();                       // configure ADC + start the sampling task
   bool enabled() const;
   void setEnabled(bool e);            // persists to NVS
+
+  void setSuspended(bool suspended);
+  bool suspended() const {return _suspended.load();}
 
   IrResult result();                  // thread-safe copy of the latest result
   bool popEvent(IrResult &event);
@@ -39,7 +42,8 @@ private:
   static void taskThunk(void *arg);
   void run();
 
-  std::atomic<bool> _enabled{false};
+  std::atomic<bool> _enabled{false},_suspended{true};
+  std::atomic<uint32_t> _generation{0};
   volatile bool _started = false;
 
   // shared result (guarded by _mux)

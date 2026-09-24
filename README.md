@@ -1,401 +1,192 @@
 <div align="center">
-
 <img src="docs/logo.png" alt="Flock Noir" width="150">
 
 # Flock Noir
 
-**An experimental, open-source counter-surveillance tool for the Seeed XIAO ESP32-S3 Sense.**
+**ALPR evidence, Axon alerts and wardriving on the Seeed XIAO ESP32-S3 Sense.**
 
-It scans for the pulsed infrared (IR) illuminators used by many ALPR / Flock-style
-surveillance cameras, tags what it finds with GPS, logs it to an SD card, and can
-simultaneously act as a Wi-Fi wardriver, all served from a self-hosted web interface.
-
-By Your Pal Kal
-
-![status](https://img.shields.io/badge/status-experimental-red)
-![platform](https://img.shields.io/badge/platform-XIAO%20ESP32--S3%20Sense-blue)
-![framework](https://img.shields.io/badge/framework-Arduino-teal)
-![license](https://img.shields.io/badge/license-MIT-green)
-
+By Your Pal Kal · Arduino / PlatformIO · [MIT](LICENSE) · Experimental
 </div>
 
----
+**[INSTALL WITH THE XIAO WEB FLASHER](https://valleytechsolutions.github.io/Flock-Noir/)** · [0.6.0 release](https://github.com/valleytechsolutions/Flock-Noir/releases/tag/xiao-v0.6.0) · [Parts and wiring](HARDWARE.md) · [Detection details](docs/RADIO.md)
 
-> ## Read this first: experimental, not a definitive detector
->
-> Flock Noir is an experimental proof of concept for research and education. It looks for
-> an IR flash pattern (roughly 10 Hz, about 20 percent duty, 850 nm) that is consistent
-> with the illuminators on some ALPR cameras. It does not, and cannot, positively identify
-> any specific camera, brand, or product.
->
-> **A positive alert is a hint, not proof.** Many things flash in the near-infrared: other
-> security cameras, motion-sensor illuminators, some LED and traffic hardware, IR remotes,
-> even sunlight off a modulated source. The onboard camera also samples far too slowly
-> (about 25 fps on the XIAO) to prove a 20 ms pulse.
->
-> **You must visually confirm an actual camera before drawing any conclusion.** Do not treat
-> this device as authoritative, do not act on its output alone, and do not present its
-> alerts as fact. It is provided as is, with no warranty. You are responsible for using it
-> lawfully. See [Legal and ethics](#legal-and-ethics).
->
-> Not affiliated with, endorsed by, or associated with Flock Safety or any camera
-> manufacturer. "Flock" is used generically to describe a category of ALPR camera.
+Flock Noir combines OPT101 pulse measurements, an IR-cut-free OV2640 and passive
+Flock-You WiFi/OUI/BLE rules. It records **possible ALPR evidence**, including how
+each event was detected. The dark green dashboard, VGA preview and editable
+per-device sounds remain. No cloud account is needed.
 
----
+**There is no verified universal ALPR flash rate in this project.** The optical
+reference profile is **8–12 Hz, 10–30% duty, 8–35 ms pulses**. A matching light or
+vendor OUI cannot prove a camera's identity. The sensors measure light intensity,
+not wavelength. Nearby optical and radio sources may be different devices; a
+quiet scan does not establish that cameras are absent. See [timing and validation](DETECTION.md).
 
-## Install from your browser
+## Four exclusive scan modes — XIAO 0.6.0
 
-**[Open the XIAO ESP32-S3 Sense web flasher](https://valleytechsolutions.github.io/Flock-Noir/)**
+Choosing one of these tabs **starts that mode and stops the previous scanner**.
+The active mode and resources appear above every tab. Camera and Settings are
+views; opening them leaves the selected scan mode running.
 
-Use desktop Chrome or Edge, a USB data cable, and your **Seeed Studio XIAO
-ESP32-S3 Sense**. Select Connect & Install and choose its USB serial port.
-Close serial monitors first. If needed, hold BOOT, tap RESET, then release BOOT.
-After flashing, reset the board, join **Flock Noir** / **flocknoir**, and open
-**http://192.168.4.1**. Leave **Erase device** unchecked on an update to preserve
-settings. The installer uses split images that exclude NVS. It cannot distinguish
-board models sharing the S3 chip: this image is only for the XIAO Sense.
-The Pi Zero 2 W uses its [own image](pi/README.md); ESP32-CAM is not supported.
-
-## ALPR focus and General scan (0.5.1)
-
-The **ALPR tab** combines OPT101 pulse timing, OV2640 camera patterns, Flock-You
-OUI/probe rules and BLE signatures. Four evidence indicators show matches within
-3 seconds, with source ages and hardware readiness. Both optical-first and
-radio-first encounters are correlated. CSV `detection_method` can include all
-four sources: `ir+camera+ble+wifi`. Nearby sources are not assumed to be one device;
-MACs remain separate in the radio log. Missing evidence cannot rule out a camera.
-
-**Focus ALPR** enables BLE, selects priority 1/6/11 for field scans and limits
-automatic sounds to ALPR/optical candidates. It preserves the OPT101 enable setting
-and current hotspot/field mode. **Scanner** is a separate tab with category filters
-and a **Use general alerts** button for ALPR, Axon, Ring, Meta, Flipper, Pineapple,
-Biscuit and drone candidates. All scanners and logs keep running in either profile;
-switching tabs alone does not change the profile. General alerts remain the default
-for compatibility with existing installations. The colors, typography and camera
-preview remain, with five tabs instead of four.
-
-Biscuit's documented BLE name and service are supported, with an editable sound.
-The service UUID alone is shared with an Arduino example and is not a Biscuit match.
-Pineapple Pager is covered only by recognizable Pineapple-family AP names; no
-unique Pager-model signature is claimed. Renamed, silent or out-of-band devices
-can be missed. See [evidence and coverage](docs/RADIO.md#alpr-focus-and-evidence-fusion-051).
-
-OPT101 **OUT → D1/GPIO2**, **VCC → 3V3**, **GND → GND**. D1 is the second left
-pin with USB at the top and the component side facing you. Enable the sensor in
-ALPR after wiring and check its response to light. ATGM336H wiring and 9600 baud
-are unchanged. The 8–12 Hz optical profile is a testable starting point, not a
-universal ALPR identifier. OPT101 measures intensity/timing, not optical wavelength.
-
-## Radio + OPT101 integration (0.4)
-
-Flock Noir now adds passive WiFi Flock/ALPR candidate detection, BLE vendor and
-watchlist scanning, target RSSI tones, WiFi packet capture, BLE advertisement
-capture, and drone Remote ID. OPT101 pulse timing runs alongside wardriving;
-events record their source and supporting evidence. The original UI design and
-visual style remain. See [features, limits and operation](docs/RADIO.md).
-
-**Version 0.4.4 introduced** configurable sounds per device type: a retro blaster for
-ALPR candidates, a siren for Axon, questioning tones for Ring/Meta, and distinct
-Flipper, Pineapple and drone sounds. Settings can assign a built-in sound,
-your own RTTTL slot, or silence to each category. The header byline is removed;
-the footer credits **Your Pal Kal**.
-
-IR, camera, BLE and WiFi detections now share the downloadable detection CSV,
-including `detection_method`, signature rule, tier, assessment and GPS validity.
-The 34-prefix Flock-You OUI union and probe/BLE rules remain enabled by default.
-Field mode offers priority channels 1/6/11 (350 ms dwell, as in Unified Blue)
-or a full 1–11 sweep. Camera and OPT101 sampling continue in either scan mode.
-The VGA JPEG preview and dashboard style are preserved.
-Download the board-specific
-binary and checksum from [Releases](https://github.com/valleytechsolutions/Flock-Noir/releases).
-
-Thanks to **[Colonel Panic](https://colonelpanic.tech/)** and
-**[OUI Spy Unified Blue](https://github.com/colonelpanichacks/oui-spy-unified-blue)**
-for the research and feature inspiration. Please support his work. Full
-[attributions and source provenance](ATTRIBUTIONS.md).
-
-## Screenshots
-
-| Detector: live IR alert, GPS tag, CSV | Camera: near-IR live view and recording |
-| :---: | :---: |
-| ![Detector tab](docs/screenshot-detector.png) | ![Camera tab](docs/screenshot-camera.png) |
-| **Wardrive: WiGLE Wi-Fi logging** | **Settings: buzzer and RTTTL tones** |
-| ![Wardrive tab](docs/screenshot-wardrive.png) | ![Settings tab](docs/screenshot-settings.png) |
-
----
-
-![Radio controls](docs/screenshot-radio.png)
-
-Radio panel preview uses simulated data; it is not a field detection result.
-
-## What it does
-
-| Capability | Description |
-|---|---|
-| OPT101 pulse timing | Dedicated ADC task; width, duty, consecutive intervals, regularity, clipping and sampling-gap checks. |
-| Radio intelligence | Passive WiFi candidates, BLE watchlists, RSSI tracking, Remote ID, SD captures and evidence logs. |
-| IR camera-flash detection | Watches the camera's near-IR view for a compact source pulsing at the target signature and raises an alert. |
-| GPS logging | Tags each detection with position and time (NMEA GNSS over UART) and appends a row to a CSV on the SD card. |
-| Wi-Fi wardriver | Optionally scans 2.4 GHz Wi-Fi and logs every access point to a separate WiGLE-format CSV, ready to upload to [wigle.net](https://wigle.net). |
-| Audible alerts | Drives a passive piezo buzzer with configurable RTTTL ringtones (a boot jingle plus a distinct alert tone). |
-| Live view and recording | Stream the camera in the browser and record to SD as MJPEG AVI, optionally with a WAV from the onboard microphone. |
-| Self-hosted web UI | A dark, phone-friendly control panel served over the device's own Wi-Fi access point and captive portal. No internet required. |
-
-Everything runs on a single low-cost board with no cloud, no account, and no internet
-connection. It is built to be read, audited, and modified: the detector, the buzzer, the
-wardriver, and the recorder are each a small, self-contained module.
-
----
-
-## How the IR detection works, and its limits
-
-**The signal.** Many ALPR cameras use an 850 nm IR illuminator that is amplitude modulated,
-roughly a 10 Hz square wave, about 20 ms on and 80 ms off (near 20 percent duty). That
-temporal signature, plus the near-IR band, is what Flock Noir keys on.
-
-**The method.** The OV2640 is a good spatial sensor but a poor temporal one for a 10 Hz
-pulse, so the firmware works in the time domain:
-
-1. The XIAO captures VGA JPEG and extracts an 80×60 grid of block-average brightness, with
-   auto-exposure, gain, and white balance forced off so the pulsing is not corrected away.
-   This is the single most important setting.
-2. Each frame yields one brightness sample (the brightest pixel), a saturated-blob size,
-   and a centroid, each timestamped in microseconds.
-3. Over a sliding window the detector finds rising edges, measures the interval between
-   them (target near 100 ms) and the duty cycle (target near 20 percent), and requires the
-   bright source to be spatially compact, which rejects whole-frame flicker from mains
-   lighting. It combines these into a confidence score from 0 to 1.
-
-**The limits, and why visual confirmation is mandatory:**
-
-- At about 25 fps you get only 2.5 frames per 100 ms cycle. A 20 ms pulse can
-  fall between frames. Camera timing is approximate and can miss or alias pulses;
-  it cannot reconstruct the exact 20/80 waveform. Use OPT101 for pulse timing.
-- The IR-cut filter in a stock lens heavily attenuates 850 nm. Detection is far more
-  reliable with an IR-filter-removed lens (see [HARDWARE.md](HARDWARE.md)).
-- Other IR emitters can produce a similar pattern. This tool narrows down where to look;
-  your eyes make the call.
-
-The most robust way to confirm the exact timing is a dedicated OPT101 analog module on an ADC
-pin sampled at ~1 kHz. **This is now built in** as a second pulse-timing detector
-(`irsensor.cpp`) that runs alongside the camera - enable it on the Detector tab once the
-sensor is wired. It builds on research from [Noflock/Flock-IR-Detection](https://github.com/Noflock/Flock-IR-Detection). For the full background on how ALPR IR works and how both detectors operate, see
-**[DETECTION.md](DETECTION.md)**; for the circuit, see [HARDWARE.md](HARDWARE.md).
-
----
-
-## Hardware targets
-
-Flock Noir has XIAO and Raspberry Pi targets that share the web UI
-(`web/index.html`) and native pulse/radio parsers. Both have 0.5.1 detection,
-watchlists, evidence logs and capture downloads. The **Pi Zero 2 W** uses an
-MCP3008 for OPT101 input and a dedicated monitor-capable USB WiFi adapter for
-passive packet capture; onboard WiFi supports surveys and the hotspot, and
-onboard Bluetooth supports legacy BLE scanning. See [Pi setup](pi/README.md).
-There is currently **no ESP32-CAM build**. The XIAO binary cannot run on ESP32-CAM.
-
-| Target | Camera | Notes |
+| Scan tab | What runs | Alerts and logs |
 |---|---|---|
-| **Seeed XIAO ESP32-S3 Sense** (`firmware/FlockNoir/`) | OV2640; the stock lens has an IR-cut filter | Tiny and cheap; Arduino C++. Prebuilt image in `binaries/`. Setup below. |
-| **Raspberry Pi** with Wi-Fi + CSI camera (`pi/`) | Camera Module **NoIR** v2/v3: no IR-cut filter, up to 90 fps | Python; runs as a systemd service with a field hotspot. Reference build: Pi Zero 2 W. A **ready-to-flash image** is on the [Releases](https://github.com/valleytechsolutions/Flock-Noir/releases) page. See **[pi/README.md](pi/README.md)**. |
+| **ALPR** | OPT101 at ~1 kHz, camera brightness analysis, ALPR/Flock BLE and promiscuous WiFi/OUI/probe rules | Retro alerts; dedicated `/alpr/alpr_*.csv` with individual or combined detection methods |
+| **SCANNER** | General WiFi/BLE device signatures, watchlist, RSSI tracking, Remote ID; optics paused | Editable sounds for ALPR, Axon, Ring, Meta, Flipper, Pineapple, Biscuit and drones; radio JSONL; ALPR radio matches also enter ALPR CSV |
+| **PIG DETECTOR** | Axon BLE only; WiFi detection, camera analysis, OPT101, wardrive and recording paused | Axon siren immediately on fresh evidence, then every 10 seconds while matches continue; 5–60 second reminder setting; radio JSONL |
+| **WARDRIVE** | WiFi network surveys and BLE advertisements; optical analysis and detection rules paused | No automatic detection tones; separate WiGLE CSV containing `WIFI` and `BLE` rows |
 
-The rest of this page describes the XIAO build; the Pi has its own guide.
+Pig Detector listens continuously for Axon company/service identifiers, advertised
+Axon names and public-address Axon OUI hints. Vendor evidence means a **possible
+Axon device**, not a guaranteed body camera or recording state. Its requested BLE
+receive window is 90 ms per 100 ms with the dashboard, and 100 ms per 100 ms in
+field coverage with WiFi off. Actual reception also depends on interference and
+advertising behavior. Reminder sounds stop after 3 seconds without a matching
+advertisement. Muting still permits logging; **Settings → Axon** changes its tone.
 
-## Hardware
+General Scanner retains Colonel Panic's Flock-You approach, including the full
+34-prefix union, transmitter/receiver roles, wildcard-probe and strict IE evidence.
+Weak shared-vendor hints stay distinct from stronger signatures. Biscuit uses its
+name and optional service; the shared Arduino example UUID alone is insufficient.
+Pineapple Pager is covered only as a Pineapple-family network-name candidate, with
+no unique Pager model fingerprint. ESP32-S3 supports **2.4 GHz WiFi and BLE**;
+it cannot survey Bluetooth Classic, 5/6 GHz WiFi or silent radios.
 
-A complete, linked bill of materials, wiring diagram, and assembly guide is in
-[HARDWARE.md](HARDWARE.md), and low-cost add-ons that make it better (a de-filtered lens,
-an IR photodiode, battery, OLED) are in [UPGRADES.md](UPGRADES.md). In short you need:
+![Pig Detector preview with simulated Axon evidence](docs/screenshot-pig.png)
 
-- Seeed Studio XIAO ESP32-S3 Sense (has the OV2640 camera and microSD slot on board)
-- A microSD card (FAT32)
-- A GNSS/GPS module (NMEA over UART)
-- A passive piezo buzzer (passive only; active buzzers cannot play the tunes)
-- The included antenna, some wire, and optionally a LiPo battery
-
-Verified pin map (nothing overlaps the Sense camera or SD):
-
-| Signal | GPIO | Header |
-|---|---|---|
-| Camera (OV2640) | 10,11,12,13,14,15,16,17,18,38,39,40,47,48 | ribbon |
-| microSD (SPI) | CS 21, SCK 7, MISO 8, MOSI 9 | D8/D9/D10 |
-| GPS RX (from module TX) | 44 | D7 |
-| GPS TX (to module RX) | 43 | D6 |
-| Buzzer signal | 1 | D0 |
-| OPT101 analog OUT | 2 | D1 / ADC1 |
-
----
+*UI preview uses simulated evidence, not a field detection.*
 
 ## Install and flash (XIAO ESP32-S3 Sense)
 
-The reference build is **XIAO ESP32-S3 Sense, 8 MB flash, OPI PSRAM**, with
-ATGM336H GPS at 9600 baud, OPT101 on D1 and an OV2640 without its IR-cut filter.
-See [HARDWARE.md](HARDWARE.md) before wiring. The radio build uses the pinned
-Arduino core/NimBLE combination in [platformio.ini](platformio.ini); use that
-configuration rather than an arbitrary Arduino board-package version.
+1. Open the **[web flasher](https://valleytechsolutions.github.io/Flock-Noir/)** in
+   desktop Chrome or Edge. Connect the XIAO with a USB **data** cable and close
+   serial monitors using its port.
+2. Select **Connect & Install**, choose the XIAO serial port and follow the prompts.
+   Leave **Erase device unchecked** when updating to keep saved settings.
+   The installer uses split images that leave the NVS settings area intact.
+3. If USB discovery fails, hold **BOOT**, tap **RESET**, then release BOOT and
+   reconnect. Tap RESET after installation if it remains in the bootloader.
+4. Join WiFi **Flock Noir**, password **flocknoir**, and open **http://192.168.4.1**.
+   Your phone may report that the hotspot has no internet; stay connected.
+5. Select **ALPR**, **Scanner**, **Pig Detector** or **Wardrive**. Saved mode and
+   tone settings persist. On upgrades, the previous ALPR/General selection migrates.
 
-### Build and upload with PlatformIO
+This binary is for the **Seeed XIAO ESP32-S3 Sense with OV2640**. A chip-family check
+cannot distinguish every S3 board. **ESP32-CAM has no supported build here** and
+uses different pins. Raspberry Pi Zero 2 W remains on its separate **0.5.1** release
+and [Pi guide](pi/README.md); this update targets XIAO only.
 
-Install Python and PlatformIO, then from the repository root:
+### Radio coverage
 
-```bash
-python -m pip install platformio==6.1.19
+Coverage is separate from the scan mode. **DASHBOARD ON** keeps the hotspot available;
+WiFi detection listens on its channel while a client is connected. Wardrive can
+run passive full-channel surveys when no dashboard clients are connected.
+
+**FIELD SCAN · HOTSPOT OFF** gives the radio broader coverage: ALPR uses channels
+1/6/11 with 350 ms dwell; Wardrive uses channels 1–11; General uses the selected
+channel plan. BLE continues alongside WiFi. Pig Detector instead switches WiFi
+off and reserves its scan window for Axon BLE. **Hold BOOT for 1.5 seconds** to
+restore the dashboard without changing the chosen scanner. Boot always restores
+the hotspot, even if the saved scan mode is Pig Detector or Wardrive.
+
+## Parts and wiring
+
+Use the [full bill of materials and assembly guide](HARDWARE.md). For the complete
+ALPR build: XIAO S3 **Sense**, compatible **OV2640 without its IR-cut filter**,
+**3.3 V OPT101 analog module**, ATGM336H GPS, antenna, FAT32 microSD, a passive piezo,
+wires and a USB data cable/power source. No additional bare photodiode or op-amp
+is needed when using OPT101.
+
+![OPT101, GPS and buzzer wiring](docs/wiring-opt101.svg)
+
+| Connection | XIAO header / GPIO |
+|---|---|
+| OPT101 VCC, GND, OUT | **3V3**, **GND**, **D1 / GPIO2** |
+| ATGM336H TX → ESP RX | **D7 / GPIO44**, **9600 baud** |
+| ATGM336H RX ← ESP TX (optional) | **D6 / GPIO43** |
+| Passive piezo signal / return | **D0 / GPIO1** / **GND**; ~100 Ω series resistor |
+| Sense camera and microSD | Existing ribbon/board connections; SD CS **GPIO21** |
+
+**D1 is the second left pin** with USB at the top and the component side facing
+you. Disconnect power before wiring. Follow the breakout labels; terminal order
+varies. Use a 3.3 V-compatible module and never feed 5 V into the ADC. Keep your
+working ATGM336H power wiring; its UART pins and 9600 baud remain unchanged.
+
+Select **ALPR**, enable **IR photodiode sensor** after connecting OPT101, and cover /
+uncover it to check the raw count and waveform. First-install sensor default is
+off; updating preserves your saved enable setting. ADC activity alone does not
+prove the module is connected. Keep camera and OPT101 aimed at the same area.
+
+## ALPR evidence and CSV
+
+The ALPR tab shows four evidence indicators and their ages. The 3-second
+correlation window supports both radio-first and optical-first encounters, with
+strong evidence expiring independently of newer weak hints.
+
+- **OPT101:** ~1 kHz ADC, adaptive noise threshold, pulse width/duty, at least four
+  consecutive valid intervals, regularity, clipping and sampling-gap checks.
+- **Camera:** 640×480 JPEG with fixed exposure/gain, two PSRAM buffers and a separate
+  80×60 brightness analysis task. Around 25 fps cannot measure a 20 ms pulse exactly.
+  A 10 Hz / 20 ms test light can appear as 5 Hz; such events retain the **observed**
+  frequency and `camera_timing=aliased_candidate`, with reduced confidence.
+- **Radio:** Flock-You OUI/probe evidence and BLE names/services. OUI-only matches
+  remain candidates. Source proximity strengthens evidence but does not bind a
+  light source to a specific MAC.
+
+**[ALPR CSV on your device](http://192.168.4.1/api/alpr.csv)** is also available
+through the ALPR tab. Its 31 columns include observation/log timestamps, GPS,
+`source`, measured `freq_hz` and `duty`, `detection_method` (`ir`, `camera`, `ble`,
+`wifi`, or combinations), category, assessment, MAC/RSSI, radio rule/tier,
+`ir_timing_match`, `camera_pattern`, `ir_pulse_ms`, `ir_sample_hz`,
+`camera_sample_hz`, `camera_timing` and `scan_mode`. Unmeasured radio-only pulse
+fields remain empty. Axon/Meta/etc. never enter this ALPR file. Optical events
+still log without GPS, with unavailable coordinates and a boot-relative timestamp.
+
+| Data | SD location | Download |
+|---|---|---|
+| ALPR / optical candidates | `/alpr/alpr_*.csv` | ALPR CSV; `/api/log` remains an alias |
+| WiGLE surveys | `/wardrive/wigle_*.csv` | Wardrive → WiGLE CSV |
+| Radio detection events | `/radio/events_*.jsonl` | Scanner/Pig Detector → radio event log |
+| Optional General captures | `/radio/wifi_*.pcap`, `/radio/ble_*.jsonl` | Scanner → capture downloads |
+| Recordings | `/videos/` | Camera → saved recordings |
+
+Wardrive logs both **WiFi APs** and **BLE advertisers**, including unrecognized
+vendors. It saves repeat measurements every 15 seconds per protocol/address,
+requires a fresh GPS position, UTC, altitude and HDOP, and reports skipped
+observations/SD errors. `AccuracyMeters` is explicitly **HDOP × 5 m estimated
+accuracy**, not a measurement from the receiver. BLE channel is **0 (unknown)**;
+SSID/name quoting is CSV-safe and line breaks become spaces for WiGLE import.
+The format follows [WiGLE's published parser](https://github.com/wiglenet/wigle-wifi-wardriving/blob/main/wiglewifiwardriving/src/main/java/net/wigle/wigleandroid/util/NetworkCsv.java).
+
+## Build, test and USB tools
+
+Dependencies are pinned in [platformio.ini](platformio.ini): pioarduino 55.03.39,
+Arduino ESP32 3.3.9 and TinyGPSPlus 1.0.3. No new runtime library is needed for 0.6.0.
+
+```sh
 python tools/html2header.py
 python -m platformio run -e xiao_esp32s3_sense
-python -m platformio run -e xiao_esp32s3_sense -t upload --upload-port COM44
-python -m platformio device monitor --port COM44 --baud 115200
+python -m platformio run -e xiao_esp32s3_sense -t upload
+python tools/package_firmware.py
+python tools/build_flasher.py
 ```
 
-Replace `COM44` with your actual port (`/dev/ttyACM0` on many Linux systems).
-On Windows, if upload output fails with `UnicodeEncodeError`, set
-`$env:PYTHONUTF8='1'` and `$env:PYTHONIOENCODING='utf-8'` in PowerShell and retry.
-TinyGPSPlus 1.0.3 is the existing GPS parser; its pinned version and the external
-GPS profile preserve ATGM336H wiring and 9600 baud. The remaining radio, camera,
-SD and web APIs ship with the pinned ESP32 core. A 6 MB application partition
-leaves room for the combined build; this partition layout has no OTA slot.
+PlatformIO uploads split images. A manual merged image at **0x0** includes NVS
+padding and can reset settings; use the web flasher or PlatformIO for updates.
+Firmware checksums and validation notes are in [binaries/BUILD.md](binaries/BUILD.md).
+Tagging `xiao-v*` runs regression/browser/build checks, publishes the board release
+and deploys its matching flasher images to GitHub Pages.
 
-### Flash the merged image
+USB serial runs at 115200 baud. Commands: `CMD:HEALTH`, `CMD:STATUS`,
+`CMD:PROFILE:alpr`, `CMD:PROFILE:general`, `CMD:PROFILE:axon`,
+`CMD:PROFILE:wardrive`, `CMD:COVERAGE:dashboard`, `CMD:COVERAGE:field`,
+`CMD:DUMP_LIVE`, and `CMD:TEST_SOUND:axon`. A tone preview tests the buzzer;
+it does not simulate a detection.
 
-The current full image and SHA-256 checksum are in [binaries/](binaries/).
-Build output also includes `.pio/build/xiao_esp32s3_sense/firmware.factory.bin`.
-
-```bash
-python -m pip install esptool
-python -m esptool --chip esp32s3 --port COM44 --baud 460800 write-flash 0x0 binaries/FlockNoir-merged-0x0.bin
-```
-
-Use a USB-C **data** cable. If the board will not enter the bootloader, hold BOOT,
-press and release RESET, release BOOT, and try again. If transfers fail, use
-115200 baud. No full-chip erase is normally necessary. Flashing a factory image
-changes the application/partition layout; back up any older flash filesystem
-contents you need. The microSD card is separate and is not formatted by flashing.
-
-For browser flashing, open [Espressif's esptool-js](https://espressif.github.io/esptool-js/)
-using desktop Chrome or Edge, connect the board, select the merged binary at
-**0x0**, and program. Do not flash the application-only `firmware.bin` at 0x0.
-Do not install Unified Blue's binary onto this build expecting Sense pin mappings.
-
-After reboot: join **Flock Noir**, password **flocknoir**, and open `192.168.4.1`.
-Confirm GPS bytes arrive, SD mounts and the OPT101 responds to light. Enable its
-Detector toggle, enable WiGLE in Wardrive, and apply Field mode for passive
-channel hopping. **Hold BOOT for 1.5 seconds** to restore the dashboard.
-
-Firmware builds and host regression tests run in GitHub Actions. A compile and
-synthetic tests do not establish field accuracy; follow the hardware test
-checklist in [docs/RADIO.md](docs/RADIO.md#validation-before-relying-on-a-build).
-
----
-
-## Using it
-
-1. Power the board. It plays a boot jingle (the Super Mario theme by default).
-2. Join the Wi-Fi network it creates (SSID and password are set in `config.h`).
-3. A captive portal page opens automatically, like hotel Wi-Fi. If it does not, browse to
-   http://192.168.4.1. iPhones rely on the built-in captive portal; if Safari still balks,
-   briefly disable cellular data.
-
-The interface has five tabs:
-
-- ALPR: focus profile, four-source evidence ages, optical scopes, camera/GPS/SD health,
-  ALPR candidates, recent detections and a combined detection CSV.
-- Scanner: all device types, category filters, General alerts, radio modes, BLE scanning,
-  watchlists, target tracking, capture downloads and saved radio sessions.
-  Hold BOOT for 1.5 seconds to return from Field mode on XIAO.
-- Camera: live near-IR view, plus a record button for MJPEG AVI (optionally with a WAV
-  from the microphone).
-- Wardrive: the independent WiGLE logging toggle, scan counts, GPS state and WiGLE CSV.
-- Settings: enable or disable the buzzer and edit the RTTTL tone library, with presets and
-  a Test button. Settings are saved on the device.
-
----
-
-## Logs and data
-
-Optical and radio detection events share one CSV. Raw radio captures, WiGLE logs
-and recordings have their own files on the SD card:
-
-| Log | Path | Format |
-|---|---|---|
-| Detection events | /logs/flock_*.csv | 26 columns: timestamps, source, GPS, optical measurements, `detection_method`, category, assessment, MAC/RSSI, radio rule/tier and optical evidence flags. |
-| Wi-Fi wardrive | /wardrive/wigle_*.csv | WiGLE 1.4 (MAC, SSID, AuthMode, FirstSeen, Channel, RSSI, Lat, Lon, Alt, Accuracy, Type) |
-| Radio events and captures | /radio/events_*.jsonl, wifi_*.pcap, ble_*.jsonl | [Schemas, limits and downloads](docs/RADIO.md#data-and-resource-limits) |
-| Recordings | /videos/rec_*.avi (and .wav) | MJPEG AVI (and PCM WAV) |
-
----
-
-## Configuration and tuning
-
-Everything lives in [firmware/FlockNoir/config.h](firmware/FlockNoir/config.h): Wi-Fi SSID
-and password, GPS pins and baud, buzzer pin, and the detection thresholds. Common tweaks:
-
-| Symptom | Try |
-|---|---|
-| Nothing detects, or the view is too bright | Lower CAM_AEC_VALUE; keep CAM_AGC_GAIN at 0 |
-| Blob never saturates | Lower SAT_THRESHOLD, or use an IR-filter-removed lens |
-| Too many false positives | Raise DETECT_CONFIDENCE and MIN_GOOD_CYCLES; tighten PERIOD_TOL_MS, DUTY_MIN, DUTY_MAX |
-| Misses real cameras | Loosen PERIOD_TOL_MS; widen DUTY_MIN and DUTY_MAX; lower MIN_AMPLITUDE |
-| Using the Seeed L76K GPS | Set GPS_BAUD to 9600 (the LC29H uses 115200) |
-
-Watch the USB serial console at 115200 baud for boot info and every alert with coordinates.
-A TV remote (IR, at a different rate) is a handy way to confirm the pipeline is alive.
-
----
-
-## Repository layout
-
-```
-.
-|-- README.md                    this file
-|-- HARDWARE.md                  parts list (with Seeed links), wiring, assembly
-|-- DETECTION.md                 how ALPR IR works and how both detectors operate
-|-- UPGRADES.md                  low-cost add-ons
-|-- CHANGELOG.md
-|-- LICENSE                      MIT (plus an experimental-software notice)
-|-- binaries/
-|   \-- FlockNoir-merged-0x0.bin prebuilt image, flash at 0x0
-|-- docs/                        logo and screenshots
-|-- web/
-|   |-- index.html               the shared web UI (single source of truth for both targets)
-|   \-- logo.png
-|-- tools/
-|   \-- html2header.py           web/index.html -> firmware/FlockNoir/web_ui.h
-|-- firmware/
-|   \-- FlockNoir/               the XIAO ESP32-S3 Arduino sketch
-|       |-- FlockNoir.ino        main loop: camera, detector, GPS, CSV, buzzer, wardriver, recorder, web
-|       |-- config.h             all pins and tunables
-|       |-- detector.h/.cpp      time-domain IR pattern detector
-|       |-- buzzer.h/.cpp        non-blocking RTTTL player and NVS tone library
-|       |-- wardriver.h/.cpp     async Wi-Fi scan to WiGLE CSV
-|       |-- recorder.h/.cpp      MJPEG-AVI writer with optional WAV
-|       |-- irsensor.h/.cpp      OPT101 pulse detector (target 1 kHz ADC task)
-|       |-- web_ui.h             the web UI embedded in flash (generated from web/index.html)
-|       |-- logo.h               embedded logo (generated)
-|       |-- assets/logo.png      source logo
-|       \-- tools/logo2header.py logo to logo.h converter
-\-- pi/                          the Raspberry Pi target (Python)
-    |-- README.md                install, wiring, and usage for the Pi
-    |-- install.sh               one-shot installer: deps, data dir, systemd service
-    |-- netmode.sh               field hotspot / home Wi-Fi mode switch
-    |-- flocknoir.service        systemd unit
-    |-- config.py                all settings
-    \-- flocknoir/               camera, detector, buzzer, gps, wardriver, recorder,
-                                 irsensor, logger, web, main
-```
-
----
-
-## Roadmap
-
-- [x] Camera IR pattern detector, GPS tag, CSV, and web alert UI
-- [x] Branded UI, passive-buzzer RTTTL alerts, and settings
-- [x] Wi-Fi wardriver (WiGLE CSV, separate log)
-- [x] Live near-IR view and MJPEG-AVI / WAV recording
-- [x] OPT101 pulse validation and temporal IR/radio evidence correlation (XIAO)
-- [ ] Rolling-shutter band analysis to recover the 20/80 shape from single frames
-- [ ] On-device map, GPX, and KML export
-- [ ] Bluetooth / BLE OUI detection
-
----
+Host tests cover timing, aliasing, mode filtering, stale reminder suppression,
+packet parsing, all 34 Flock OUIs, evidence expiry, WiGLE serialization and JPEG
+analysis. Browser tests exercise mode changes, failures, mobile layout, sound
+settings and preview recovery. Hardware smoke tests are opt-in; field range,
+false-positive rates, actual ALPR pulse profiles and Axon beacon coverage require
+real target measurements.
 
 ## Credits and attributions
 

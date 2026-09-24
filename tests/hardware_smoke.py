@@ -10,7 +10,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", required=True)
     parser.add_argument("--seconds", type=int, default=30)
-    parser.add_argument("--version", default="0.5.1")
+    parser.add_argument("--version", default="0.6.0")
     parser.add_argument("--require-gps-data", action="store_true")
     parser.add_argument("--require-sd", action="store_true")
     args = parser.parse_args()
@@ -88,7 +88,7 @@ def main():
         summary["fpsRange"] = [min(h["fps"] for h in health), max(h["fps"] for h in health)]
     if radio:
         keys = ("mode", "wifiReady", "bleReady", "bleScanning", "packets", "dropped",
-                "freeHeap", "minFreeHeap", "logErrors")
+                "freeHeap", "minFreeHeap", "logErrors", "wifiFramesSeen", "bleAdvertisementsSeen")
         summary["radio"] = {key: radio[-1].get(key) for key in keys}
         if len(radio)>1:
             summary["radio"]["droppedDuringCheck"]=radio[-1]["dropped"]-radio[0]["dropped"]

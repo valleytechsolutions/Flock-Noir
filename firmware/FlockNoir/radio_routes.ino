@@ -11,6 +11,17 @@ void registerRadioRoutes() {
     bool ok=radio.setProfile(server.arg("profile"));
     server.send(ok?200:400,"application/json",ok?"{\"ok\":true}":"{\"ok\":false}");
   });
+  server.on("/api/coverage",HTTP_POST,[](){
+    bool ok=radio.setTransport(server.arg("mode"));
+    server.send(ok?200:400,"application/json",ok?"{\"ok\":true}":"{\"ok\":false}");
+  });
+  server.on("/api/axon",HTTP_POST,[](){
+    String value=server.arg("repeatSeconds");
+    bool valid=value.length()>0 && value.length()<=2;
+    for(size_t i=0;i<value.length();++i)valid=valid && isdigit((unsigned char)value[i]);
+    bool ok=valid && radio.setAxonReminder(value.toInt());
+    server.send(ok?200:400,"application/json",ok?"{\"ok\":true}":"{\"ok\":false}");
+  });
   server.on("/api/radio",HTTP_GET,[](){server.send(200,"application/json",radio.json());});
   server.on("/api/radio/devices",HTTP_GET,[](){server.send(200,"application/json",radio.rowsJson());});
   server.on("/api/radio",HTTP_POST,[](){
@@ -70,6 +81,7 @@ void serviceRadioSerial() {
     if(c=='\r')continue;
     if(c=='\n') {
       if(command.startsWith("CMD:PROFILE:"))output=radio.setProfile(command.substring(12))?"{\"ok\":true}\n":"{\"ok\":false}\n";
+      else if(command.startsWith("CMD:COVERAGE:"))output=radio.setTransport(command.substring(13))?"{\"ok\":true}\n":"{\"ok\":false}\n";
       else if(command=="CMD:STATUS")output=radio.json()+"\n";
       else if(command=="CMD:HEALTH")output=statusJson()+"\n";
       else if(command=="CMD:VERSION")output="{\"firmware\":\"Flock Noir\",\"version\":\"" FLOCK_NOIR_VERSION "\"}\n";

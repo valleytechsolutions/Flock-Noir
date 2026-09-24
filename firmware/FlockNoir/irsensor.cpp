@@ -28,9 +28,17 @@ void IrSensor::begin() {
 }
 bool IrSensor::enabled() const { return _enabled.load(); }
 bool IrSensor::popEvent(IrResult &event) {
-  return _events && xQueueReceive(_events, &event, 0) == pdTRUE;
+  while(_events && xQueueReceive(_events,&event,0)==pdTRUE)
+    if(!suspended() && enabled() && event.generation==_generation.load())return true;
+  return false;
+}
+void IrSensor::setSuspended(bool suspended) {
+  if(_suspended.exchange(suspended)==suspended)return;
+  ++_generation;
+  portENTER_CRITICAL(&_mux);_res=IrResult();_res.present=_started;_rcount=_rhead=0;portEXIT_CRITICAL(&_mux);
 }
 void IrSensor::setEnabled(bool e) {
+  ++_generation;
   _enabled.store(e);
   if (irPrefs.begin("flockir", false)) {
     if (!irPrefs.putBool("en", e)) Serial.println("[IR] settings write failed");
@@ -39,7 +47,7 @@ void IrSensor::setEnabled(bool e) {
 }
 IrResult IrSensor::result() {
   portENTER_CRITICAL(&_mux); IrResult r = _res; portEXIT_CRITICAL(&_mux);
-  if (!enabled()) r.detected = false;
+  if (!enabled() || suspended()) r.detected = false;
   return r;
 }
 int IrSensor::snapshot(uint8_t *out, int maxN) {
@@ -69,10 +77,16 @@ void IrSensor::run() {
   uint32_t publish = 0, samples = 0, rateAt = millis();
   float rate = 0;
   int decim = 0;
-  bool wasEnabled = false;
+  bool wasEnabled = false;uint32_t generation=_generation.load();
   uint32_t lastEvent = 0, droppedEvents = 0;
   bool previousMatch = false;
   for (;;) {
+    if(suspended()) {
+      pulse.reset();wasEnabled=false;previousMatch=false;rate=0;samples=0;rateAt=millis();
+      vTaskDelay(pdMS_TO_TICKS(20));last=xTaskGetTickCount();continue;
+    }
+    uint32_t currentGeneration=_generation.load();
+    if(generation!=currentGeneration){pulse.reset();generation=currentGeneration;previousMatch=false;}
     bool en = enabled();
     uint16_t raw = analogRead(IR_SENSOR_PIN);
     uint32_t now = millis();
@@ -96,14 +110,14 @@ void IrSensor::run() {
       r.validCount = pulse.valid; r.present = _started;
       r.clipped = pulse.clipped; r.pulseMs = pulse.widthMs;
       r.sampleHz = rate; r.gaps = pulse.gaps; r.noise = pulse.noise; r.raw = raw;
-      r.timestampMs = now;
+      r.timestampMs = now;r.generation=generation;
       if (r.detected && (!previousMatch || now-lastEvent >= ALERT_HOLDOFF_MS)) {
         if (!_events || xQueueSend(_events,&r,0)!=pdTRUE) ++droppedEvents;
         lastEvent = now;
       }
       previousMatch = r.detected;
       r.droppedEvents = droppedEvents;
-      portENTER_CRITICAL(&_mux); _res = r; portEXIT_CRITICAL(&_mux);
+      portENTER_CRITICAL(&_mux); if(!suspended() && generation==_generation.load())_res = r; portEXIT_CRITICAL(&_mux);
     }
     vTaskDelayUntil(&last, ticks);
     if (xTaskGetTickCount() - last > ticks) last = xTaskGetTickCount();

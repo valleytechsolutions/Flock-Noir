@@ -5,9 +5,10 @@
 #include "radio_protocol.h"
 #include "radio_alert.h"
 #include "fusion.h"
+#include "scan_mode.h"
 
 struct RadioObservation {
-  uint32_t ms=0;
+  uint32_t ms=0, generation=0;
   uint16_t length=0, original=0;
   int8_t rssi=0;
   uint8_t channel=0, kind=0, addressType=0, eventType=0, mac[6]={};
@@ -24,9 +25,15 @@ public:
   String alertJson(bool alprOnly=false) const;
   String fusionJson(uint32_t now) const;
   AlprFusion::Snapshot fusion(uint32_t now) const {return _fusion.snapshot(now);}
-  void optical(bool ir,uint32_t at) {_fusion.observe(ir?AlprFusion::Ir:AlprFusion::Camera,at);}
+  void optical(bool ir,uint32_t at) {if(!opticalEnabled())return;_fusion.observe(ir?AlprFusion::Ir:AlprFusion::Camera,at);}
   bool setProfile(const String &profile);
-  const char *profile() const {return _alprFocus?"alpr":"general";}
+  const char *profile() const {return ScanMode::name(_profile);}
+  ScanMode::Mode scanMode() const {return _profile;}
+  bool opticalEnabled() const {return ScanMode::optical(_profile);}
+  uint32_t generation() const {return _generation.load();}
+  bool setTransport(const String &mode) {return configure(mode,_ble,_capture,_watch,_target,_dashboardChannel,_allChannels?"all":"priority");}
+  bool setAxonReminder(uint32_t seconds);
+  uint32_t axonReminderSeconds() const {return _axonRepeatMs/1000;}
   uint32_t events() const {return _events;}
   bool field() const { return _field; }
   bool recentAlpr(uint32_t now) const;
@@ -48,7 +55,11 @@ private:
   };
   Device _devices[64];
   AlprFusion::Tracker _fusion;
-  bool _alprFocus=false;
+  ScanMode::Mode _profile=ScanMode::General;
+  std::atomic<uint32_t> _generation{0};
+  ScanMode::Reminder _axonReminder;
+  uint32_t _axonRepeatMs=10000;
+  bool _restartBle=false;
   uint32_t _events=0,_alertRequests=0;
   uint32_t _irAt=0,_cameraAt=0;
   QueueHandle_t _queue=nullptr;
