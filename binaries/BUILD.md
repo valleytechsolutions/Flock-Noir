@@ -66,8 +66,9 @@ changing the scan mode. Boot restores the hotspot with the saved mode.
   GPS messages continued, SD stayed ready and tone/sensor settings were preserved.
   Axon field coverage disabled WiFi and reported the 100/100 ms BLE window.
 - A 30-second ALPR hardware check showed 640×480, 25.0–25.1 analysis fps, zero
-  camera decode errors, 1000 Hz ADC, zero GPS checksum errors and no new queue
-  drops during the steady check. Startup / mode-transition drops can occur.
+  camera decode errors, 1000 Hz ADC, valid GPS messages and no new queue
+  drops during the steady check. The latest restart showed one GPS checksum
+  error; valid NMEA continued. Startup / mode-transition queue drops can occur.
 
 The attached **OPT101 ADC input read 4095 (clipped)**. Sampling was verified;
 usable optical pulses / physical sensor wiring were not. Clipped inputs are
