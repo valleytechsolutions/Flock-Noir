@@ -8,7 +8,7 @@
 By Your Pal Kal · Arduino / PlatformIO · [MIT](LICENSE) · Experimental
 </div>
 
-**[INSTALL WITH THE XIAO WEB FLASHER](https://valleytechsolutions.github.io/Flock-Noir/)** · [0.6.0 release](https://github.com/valleytechsolutions/Flock-Noir/releases/tag/xiao-v0.6.0) · [Parts and wiring](HARDWARE.md) · [Detection details](docs/RADIO.md)
+**[INSTALL WITH THE XIAO WEB FLASHER](https://valleytech-flock-noir.pages.dev/)** · [0.6.0 release](https://github.com/valleytechsolutions/Flock-Noir/releases/tag/xiao-v0.6.0) · [Parts and wiring](HARDWARE.md) · [Detection details](docs/RADIO.md)
 
 Flock Noir combines OPT101 pulse measurements, an IR-cut-free OV2640 and passive
 Flock-You WiFi/OUI/BLE rules. It records **possible ALPR evidence**, including how
@@ -56,7 +56,7 @@ it cannot survey Bluetooth Classic, 5/6 GHz WiFi or silent radios.
 
 ## Install and flash (XIAO ESP32-S3 Sense)
 
-1. Open the **[web flasher](https://valleytechsolutions.github.io/Flock-Noir/)** in
+1. Open the **[web flasher](https://valleytech-flock-noir.pages.dev/)** in
    desktop Chrome or Edge. Connect the XIAO with a USB **data** cable and close
    serial monitors using its port.
 2. Select **Connect & Install**, choose the XIAO serial port and follow the prompts.
